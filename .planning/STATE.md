@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Primitives and the Determinism Spine
 status: executing
-stopped_at: Completed 01-03-PLAN.md
-last_updated: "2026-08-30T23:28:27.364Z"
+stopped_at: Completed 01-04-PLAN.md
+last_updated: "2026-08-30T23:39:30.497Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 01 execution started
-state_head: fc6542dc9de1d9da9b9a3053faad1cbbb3f93a29
+state_head: 984e3954c72b42eecf7cdee73a1081c0aa021772
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 8
-  completed_plans: 3
+  completed_plans: 4
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 01 (Primitives and the Determinism Spine) — EXECUTING
-Plan: 4 of 8
+Plan: 5 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 01 execution started
 
@@ -61,6 +61,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P01 | 11 min | 3 tasks | 12 files |
 | Phase 01 P02 | 4 min | 4 tasks | 3 files |
 | Phase 01 P03 | 5 min | 3 tasks | 3 files |
+| Phase 01 P04 | 10 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,10 @@ Recent decisions affecting current work:
 - [Phase 01]: Money::split distributes the remainder to the first |amount mod n| recipients by ascending index, on both signs, and panics on n == 0 rather than returning an empty vector. Phase 2 LEDG-03 and Phase 8 OWN-06 are written against this rule; changing it later would alter every committed run trajectory.
 - [Phase 01]: try_scale multiplies before dividing so the ratio keeps full precision in the integer domain with no intermediate rounding and no float; it truncates toward zero on both signs and reports a zero denominator as Err.
 - [Phase 01]: The plain-+ mutation cannot prove the D-07 operator half under this repo profile: with [profile.release] overflow-checks = true a bare + still panics with a message containing "overflow". Only a truly unchecked operation (wrapping_add) distinguishes the two belts, which is precisely why the .expect on checked_* is not redundant with CORE-02.
+- [Phase 01]: Sub-stream key layout LOCKED at tick:24 | agent:24 | purpose:16. One-way door — re-keying invalidates every future golden log and insta snapshot. Confirms CONTEXT.md D-01/D-02; resolved from the project record under mode:yolo + gate=blocking, not a fresh human answer. Flagged for human confirmation at verify-phase (SUMMARY coverage D6) while reversal is still cheap.
+- [Phase 01]: Purpose discriminants are append-only and gapped per subsystem (10/11 activation, 20/21 labour, 30/31 goods, 40-43 price+wage, 50 bankruptcy). A later phase adding a draw site appends a variant AND must add it to ALL_PURPOSES, or the injectivity sweep silently stops covering it.
+- [Phase 01]: The RNG re-entry guard is debug-only by design — a decade-long run opens millions of sub-streams and a release-build BTreeSet of issued keys would grow without bound. Ordered set, never hashed (CORE-07).
+- [Phase 01]: getrandom IS in the dependency graph, but only via the proptest dev-dependency (rand 0.9 and tempfile). The correct CORE-03 check is 'cargo tree --edges normal', already asserted in tests/toolchain.sh from plan 01-01 — a bare 'cargo tree | grep getrandom' produces a false failure.
 
 ### Pending Todos
 
@@ -117,6 +122,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-30T23:28:14.724Z
-Stopped at: Completed 01-03-PLAN.md
+Last session: 2026-08-30T23:39:18.556Z
+Stopped at: Completed 01-04-PLAN.md
 Resume file: None

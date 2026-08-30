@@ -60,7 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. `cargo clippy` **fails the build** when code introduces a `HashMap`/`HashSet` on a behaviour path or calls one of the 31 non-deterministic `f64` methods; `Cargo.toml` contains no `rayon` and `rust-toolchain.toml` and `Cargo.lock` are committed.
   5. Every config value carries a source-grade annotation (A/B/C/PROJECT), asserted by the annotation test — which names any unannotated key — rather than by review. The second half of CORE-11, that the Lengnick Table 1 values are checked against the published paper with any discrepancy recorded rather than silently adopted, is **gated on Phase 6 per D-19** — primary-source access is egress-blocked here and no phase before 6 consumes the values; until that gate runs the affected rows stand marked `UNVERIFIED` in `config/PROVENANCE.md`. Deferred, not dropped: Phase 1 ships the machinery, the honest marking and the verification procedure.
 
-**Plans**: 3/8 plans executed in 4 waves
+**Plans**: 4/8 plans executed in 4 waves
 Plans:
 **Wave 1**
 
@@ -70,7 +70,7 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 01-03-PLAN.md — Money: panicking operators, the named Result API, and a split that conserves every cent under property test
-- [ ] 01-04-PLAN.md — RNG sub-streams: the bit-packed key, the Purpose enum, the re-entry guard and the fixed-draw samplers
+- [x] 01-04-PLAN.md — RNG sub-streams: the bit-packed key, the Purpose enum, the re-entry guard and the fixed-draw samplers
 - [ ] 01-05-PLAN.md — Generational FirmId with an in-place-respawn arena, and the confined float domain with a deterministic fractional power
 - [ ] 01-06-PLAN.md — Config strictness: the full parameter schema, deny-unknown on every struct, and the exhaustive missing-key proof
 
@@ -246,7 +246,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Primitives and the Determinism Spine | 3/8 | In Progress|  |
+| 1. Primitives and the Determinism Spine | 4/8 | In Progress|  |
 | 2. Books, Journal and Invariants | 0/TBD | Not started | - |
 | 3. World, Tick Pipeline and Log Seam | 0/TBD | Not started | - |
 | 4. Python Acceptance Harness Skeleton | 0/TBD | Not started | - |
