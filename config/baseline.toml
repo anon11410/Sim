@@ -1,14 +1,69 @@
 # Baseline parameters for the minimal closed economy.
 #
-# Every parameter the simulation reads lives in this file; nothing is hardcoded
-# in logic. Plan 01-06 widens this to the full parameter set and plan 01-08
-# annotates every key with its source grade.
+# Every simulation and economic parameter the model reads lives in this file;
+# nothing is hardcoded in logic (CORE-10). The only numeric constants in code
+# are the non-economic numerical-method ones CORE-10 carves out explicitly:
+# POW_FRAC_BITS, PPM_SCALE and MILLI_SCALE in `src/numeric.rs`.
+#
+# Ratios and probabilities are parts-per-million integers, so every threshold
+# stays in the integer domain. A key marked `# CALIBRATED-IN: phase-11` carries
+# a provisional value chosen for internal consistency at 200 households and
+# 20 firms; REQUIREMENTS.md CAL-01 and CAL-02 place its calibration in Phase 11.
+#
+# Plan 01-08 adds the per-key `# GRADE:` provenance blocks and
+# `config/PROVENANCE.md`. Editing a comment changes the config hash, which is
+# taken over this file's raw bytes — that is deliberate, because the comments
+# carry the source grades CORE-11 makes load-bearing.
 
 [sim]
-ticks      = 3650
-seed       = 42
+ticks = 3650
+seed = 42
 households = 200
-firms      = 20
+firms = 20
+month_days = 21
 
 [money]
-total_money_cents = 2000000
+total_money_cents = 2000000 # CALIBRATED-IN: phase-11
+
+[household]
+consumption_exponent_ppm = 900000
+supplier_list_size = 7
+supplier_switch_threshold_ppm = 10000
+price_search_prob_ppm = 250000
+rationing_search_prob_ppm = 250000
+firms_sampled_consumer = 5
+firms_sampled_unemployed = 5
+firms_sampled_employed = 1
+employed_search_prob_ppm = 100000
+reservation_wage_decay_ppm = 900000
+reservation_wage_floor_cents = 1000 # CALIBRATED-IN: phase-11
+initial_liquidity_cents = 5000 # CALIBRATED-IN: phase-11
+initial_reservation_wage_cents = 6300 # CALIBRATED-IN: phase-11
+
+[firm]
+productivity_units_per_worker_day = 3
+demand_smoothing_ppm = 250000
+price_step_bound_ppm = 20000
+price_inaction_prob_ppm = 750000
+inventory_floor_ppm = 250000
+inventory_ceiling_ppm = 1000000
+price_floor_over_mc_ppm = 1025000
+price_ceiling_over_mc_ppm = 1150000
+wage_step_bound_ppm = 19000
+full_staff_cycles_before_wage_cut = 24
+dividend_buffer_ppm = 100000
+demand_satisfaction_ppm = 950000
+wage_floor_cents = 1000 # CALIBRATED-IN: phase-11
+initial_price_cents = 105 # CALIBRATED-IN: phase-11
+initial_wage_cents = 6300 # CALIBRATED-IN: phase-11
+initial_inventory_units = 165 # CALIBRATED-IN: phase-11
+initial_expected_demand = 330.0 # CALIBRATED-IN: phase-11
+initial_liquidity_cents = 50000 # CALIBRATED-IN: phase-11
+
+[bankruptcy]
+entrant_size_ratio_ppm = 800000
+entrant_price_ratio_ppm = 1260000
+incumbent_trim_per_tail = 1
+
+[ownership]
+firms_per_owner = 1
