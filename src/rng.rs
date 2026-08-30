@@ -86,3 +86,148 @@ impl Stream {
         self.1
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    // ---- pack_stream_key: the arithmetic ----------------------------------
+
+    #[test]
+    fn pack_at_the_origin_is_the_purpose_discriminant() {
+        assert_eq!(
+            pack_stream_key(0, 0, Purpose::TracerProbe),
+            Purpose::TracerProbe as u16 as u64
+        );
+        for p in ALL_PURPOSES {
+            assert_eq!(pack_stream_key(0, 0, p), p as u16 as u64);
+        }
+    }
+
+    #[test]
+    fn one_tick_moves_the_key_by_the_tick_field_shift() {
+        for p in ALL_PURPOSES {
+            assert_eq!(pack_stream_key(1, 0, p), (1u64 << 40) | p as u16 as u64);
+        }
+    }
+
+    #[test]
+    fn one_agent_moves_the_key_by_the_purpose_field_width() {
+        for p in ALL_PURPOSES {
+            assert_eq!(pack_stream_key(0, 1, p), (1u64 << 16) | p as u16 as u64);
+        }
+    }
+
+    #[test]
+    fn pack_stream_key_is_injective_over_a_swept_grid() {
+        let mut seen = BTreeSet::new();
+        let mut swept = 0usize;
+        for tick in 0..40u32 {
+            for agent in 0..40u32 {
+                for p in ALL_PURPOSES {
+                    swept += 1;
+                    assert!(
+                        seen.insert(pack_stream_key(tick, agent, p)),
+                        "key collision at ({tick}, {agent}, {p:?})"
+                    );
+                }
+            }
+        }
+        assert_eq!(swept, 40 * 40 * ALL_PURPOSES.len());
+        assert_eq!(seen.len(), swept);
+    }
+
+    // ---- pack_stream_key: the field boundary ------------------------------
+
+    #[test]
+    fn the_maximum_tick_and_agent_pack_and_stay_distinct() {
+        let max = (1u32 << TICK_BITS) - 1;
+        let p = Purpose::GoodsSample;
+        let top = pack_stream_key(max, max, p);
+        let one_below = pack_stream_key(max - 1, max, p);
+        assert_ne!(top, one_below);
+        assert_eq!(
+            top,
+            ((max as u64) << (AGENT_BITS + PURPOSE_BITS))
+                | ((max as u64) << PURPOSE_BITS)
+                | p as u16 as u64
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "tick")]
+    fn one_step_past_the_tick_field_panics() {
+        pack_stream_key(1 << TICK_BITS, 0, Purpose::GoodsSample);
+    }
+
+    #[test]
+    #[should_panic(expected = "agent")]
+    fn one_step_past_the_agent_field_panics() {
+        pack_stream_key(0, 1 << AGENT_BITS, Purpose::GoodsSample);
+    }
+
+    // ---- Rngs / Stream ----------------------------------------------------
+
+    #[test]
+    fn seed_zero_is_a_legal_master_seed() {
+        let r = Rngs::new(0);
+        let v = r.stream(0, 0, Purpose::GoodsSample).below(1_000_000);
+        assert!(v < 1_000_000);
+    }
+
+    #[test]
+    fn an_unopened_stream_reports_zero_draws() {
+        let r = Rngs::new(20260830);
+        let s = r.stream(0, 0, Purpose::GoodsSample);
+        assert_eq!(s.draws(), 0);
+    }
+
+    #[test]
+    fn the_same_master_seed_gives_the_same_first_draw() {
+        let (t, a, p) = (10u32, 7u32, Purpose::LabourSample);
+        let x = Rngs::new(20260830).stream(t, a, p).below(u64::MAX);
+        let y = Rngs::new(20260830).stream(t, a, p).below(u64::MAX);
+        assert_eq!(x, y);
+    }
+
+    #[test]
+    fn an_adjacent_master_seed_gives_a_different_first_draw() {
+        let (t, a, p) = (10u32, 7u32, Purpose::LabourSample);
+        let x = Rngs::new(20260830).stream(t, a, p).below(u64::MAX);
+        let y = Rngs::new(20260831).stream(t, a, p).below(u64::MAX);
+        assert_ne!(x, y);
+    }
+
+    // The re-entry guard (D-04) is a debug-build construct by design: it costs
+    // a BTreeSet insert per sub-stream, and a 10-year run opens millions.
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "sub-stream key")]
+    fn reopening_a_key_panics_in_a_debug_build() {
+        let r = Rngs::new(20260830);
+        let _first = r.stream(10, 7, Purpose::GoodsSample);
+        let _second = r.stream(10, 7, Purpose::GoodsSample);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_different_purpose_at_the_same_tick_and_agent_is_not_a_re_entry() {
+        let r = Rngs::new(20260830);
+        let _a = r.stream(10, 7, Purpose::GoodsSample);
+        let _b = r.stream(10, 7, Purpose::LabourSample);
+    }
+
+    // ---- Purpose discriminants -------------------------------------------
+
+    #[test]
+    fn every_purpose_discriminant_is_distinct_and_non_zero() {
+        let mut seen = BTreeSet::new();
+        for p in ALL_PURPOSES {
+            let d = p as u16;
+            assert_ne!(d, 0, "{p:?} must not use discriminant 0");
+            assert!(seen.insert(d), "duplicate discriminant {d} at {p:?}");
+        }
+        assert_eq!(seen.len(), ALL_PURPOSES.len());
+    }
+}
