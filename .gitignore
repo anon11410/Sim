@@ -8,3 +8,6 @@ npm-debug.log*
 # OS / editor
 .DS_Store
 *.swp
+
+# GSD research agent web-fetch cache (transient, per-machine)
+.planning/research/.cache/
