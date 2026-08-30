@@ -15,3 +15,8 @@ npm-debug.log*
 # GSD run-scoped runtime state (per-machine/per-session, regenerated on demand)
 .gsd/
 .planning/milestone.lock
+
+# Rust build artefacts. Cargo.lock is deliberately NOT ignored -- it is part
+# of the reproducibility contract (a minor bump of the RNG crate can legally
+# change a distribution algorithm).
+/target
