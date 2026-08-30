@@ -106,3 +106,151 @@ pub fn config_hash(bytes: &[u8]) -> String {
     }
     hex
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A complete, schema-valid document, embedded rather than read from
+    /// `config/baseline.toml` so this module pins the *schema* and cannot be
+    /// broken by a later edit to the shipped parameter values. The shipped file
+    /// is exercised end to end by `tests/config_strict.rs` and the tracer test.
+    const FULL: &str = "\
+[sim]
+ticks = 3650
+seed = 42
+households = 200
+firms = 20
+month_days = 21
+
+[money]
+total_money_cents = 2000000
+
+[household]
+consumption_exponent_ppm = 900000
+supplier_list_size = 7
+supplier_switch_threshold_ppm = 10000
+price_search_prob_ppm = 250000
+rationing_search_prob_ppm = 250000
+firms_sampled_consumer = 5
+firms_sampled_unemployed = 5
+firms_sampled_employed = 1
+employed_search_prob_ppm = 100000
+reservation_wage_decay_ppm = 900000
+reservation_wage_floor_cents = 1000
+initial_liquidity_cents = 5000
+initial_reservation_wage_cents = 6300
+
+[firm]
+productivity_units_per_worker_day = 3
+demand_smoothing_ppm = 250000
+price_step_bound_ppm = 20000
+price_inaction_prob_ppm = 750000
+inventory_floor_ppm = 250000
+inventory_ceiling_ppm = 1000000
+price_floor_over_mc_ppm = 1025000
+price_ceiling_over_mc_ppm = 1150000
+wage_step_bound_ppm = 19000
+full_staff_cycles_before_wage_cut = 24
+dividend_buffer_ppm = 100000
+demand_satisfaction_ppm = 950000
+wage_floor_cents = 1000
+initial_price_cents = 105
+initial_wage_cents = 6300
+initial_inventory_units = 165
+initial_expected_demand = 330.0
+initial_liquidity_cents = 50000
+
+[bankruptcy]
+entrant_size_ratio_ppm = 800000
+entrant_price_ratio_ppm = 1260000
+incumbent_trim_per_tail = 1
+
+[ownership]
+firms_per_owner = 1
+";
+
+    /// The error text of a failed parse, or a panic naming the value that
+    /// unexpectedly parsed.
+    fn parse_error(document: &str) -> String {
+        match toml::from_str::<Params>(document) {
+            Ok(params) => panic!("expected a parse failure, got {params:?}"),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    #[test]
+    fn the_full_document_parses() {
+        toml::from_str::<Params>(FULL).expect("the embedded full document must parse");
+    }
+
+    #[test]
+    fn an_empty_document_is_rejected_by_name() {
+        let error = parse_error("");
+        assert!(
+            error.contains("missing field"),
+            "an empty file must not produce a fully-defaulted parameter set: {error}"
+        );
+    }
+
+    #[test]
+    fn a_misspelled_key_inside_a_table_is_rejected() {
+        // Inside `[sim]`, not as a second `[sim]` table: the root's
+        // `deny_unknown_fields` would catch the latter for the wrong reason.
+        let error = parse_error(&FULL.replace("[sim]\n", "[sim]\nhouseolds = 1\n"));
+        assert!(error.contains("unknown field"), "{error}");
+        assert!(error.contains("houseolds"), "the misspelling is not named: {error}");
+    }
+
+    #[test]
+    fn an_undeclared_table_is_rejected() {
+        let error = parse_error(&format!("{FULL}\n[oops]\nx = 1\n"));
+        assert!(error.contains("unknown field"), "{error}");
+        assert!(error.contains("oops"), "the stray table is not named: {error}");
+    }
+
+    #[test]
+    fn a_decimal_is_not_coerced_into_an_integer_key() {
+        let error = parse_error(&FULL.replace("households = 200", "households = 250.0"));
+        assert!(error.contains("invalid type"), "{error}");
+        assert!(error.contains("floating point"), "{error}");
+    }
+
+    #[test]
+    fn a_quoted_number_is_not_coerced_into_an_integer_key() {
+        let error = parse_error(&FULL.replace("households = 200", "households = \"42\""));
+        assert!(error.contains("invalid type"), "{error}");
+        assert!(error.contains("string"), "{error}");
+    }
+
+    #[test]
+    fn a_key_with_no_value_is_a_parse_error() {
+        let error = parse_error(&FULL.replace("households = 200", "households ="));
+        assert!(error.contains("TOML parse error"), "{error}");
+    }
+
+    #[test]
+    fn parsing_the_same_document_twice_is_equal() {
+        let first = toml::from_str::<Params>(FULL).expect("first parse");
+        let second = toml::from_str::<Params>(FULL).expect("second parse");
+        assert_eq!(format!("{first:?}"), format!("{second:?}"));
+    }
+
+    #[test]
+    fn the_hash_is_stable_and_sensitive_to_one_comment_character() {
+        let once = config_hash(FULL.as_bytes());
+        assert_eq!(once.len(), 64, "digest is not 64 hex characters: {once}");
+        assert!(
+            once.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+            "digest is not lowercase hex: {once}"
+        );
+        assert_eq!(once, config_hash(FULL.as_bytes()), "the hash is not stable");
+
+        let commented = format!("{FULL}# one more character\n");
+        assert_ne!(
+            once,
+            config_hash(commented.as_bytes()),
+            "a comment change must change the hash — the comments carry the source grades"
+        );
+    }
+}
