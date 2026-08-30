@@ -59,7 +59,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 8 plans in 4 waves
 Plans:
 - [ ] 01-01-PLAN.md — Tracer: the crate spine end to end (config → hash → effective seed → sub-stream draw → Money), plus the committed toolchain pin, lockfile and release overflow check
-- [ ] 01-02-PLAN.md — Amend CORE-03 into two testable clauses and scope CORE-10, and correct the rand 0.10 small-RNG claim in CLAUDE.md
+- [ ] 01-02-PLAN.md — Amend CORE-03 into two testable clauses, scope CORE-10, split CORE-11 and Phase 1 criterion 5 so the paper-verification clause is visibly gated on Phase 6 rather than silently graded here, and correct the rand 0.10 small-RNG claim in CLAUDE.md
 - [ ] 01-03-PLAN.md — Money: panicking operators, the named Result API, and a split that conserves every cent under property test
 - [ ] 01-04-PLAN.md — RNG sub-streams: the bit-packed key, the Purpose enum, the re-entry guard and the fixed-draw samplers
 - [ ] 01-05-PLAN.md — Generational FirmId with an in-place-respawn arena, and the confined float domain with a deterministic fractional power

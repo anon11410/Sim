@@ -1409,9 +1409,13 @@ applies to invariants.
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **RNG sub-stream keying scheme.**
+All seven were carried into `/gsd-discuss-phase` and closed there. Each is marked below with the
+CONTEXT.md decision that closed it. Nothing in this section is open; a later agent should read the
+named decision as authoritative and this section as the reasoning behind it.
+
+1. **RNG sub-stream keying scheme.** — **RESOLVED: D-01, D-02.**
    - What we know: `set_stream(u64)` exists and works; bit-packing is bijective and 5.9× cheaper
      than SHA-256 child seeds; isolation verified by execution.
    - What's unclear: nothing mechanical. The remaining question is whether the project wants the
@@ -1419,22 +1423,30 @@ applies to invariants.
    - Recommendation: **bit-packed `set_stream`, `tick:24 | agent:24 | purpose:16`.** Lock it in
      `/gsd-discuss-phase`. The bit allocation itself is worth confirming with the user, since
      widening `purpose` later re-keys everything.
+   - **RESOLVED: D-01** takes the bit-packed nonce over hashed child seeds; **D-02** fixes the
+     allocation at 24/24/16 and forbids narrowing it. The user confirmation this item asked for is
+     carried by the `checkpoint:decision` in plan `01-04`, which gates the allocation before any
+     code depends on it.
 
-2. **`f64` vs `i64` milli-units for `expected_demand`.**
+2. **`f64` vs `i64` milli-units for `expected_demand`.** — **RESOLVED: D-11.**
    - What we know: both are deterministic; divergence over 3650 ticks is 2.1e-3 units;
      `+ − × ÷ sqrt` are correctly rounded; the float domain must exist regardless because of
      MKT-01.
    - What's unclear: only preference.
    - Recommendation: **restricted `f64`**, confined to `src/numeric.rs` plus the field itself.
+   - **RESOLVED: D-11** — restricted `f64`, the restriction being `+ − × ÷ sqrt` only, confined to
+     `src/numeric.rs` and the one config field.
 
-3. **How `(m/P̄)^0.9` is computed (blocks the clippy list).**
+3. **How `(m/P̄)^0.9` is computed (blocks the clippy list).** — **RESOLVED: D-12.**
    - What we know: `powf` is banned and genuinely non-deterministic; `pow_frac_det` reproduces it
      to 1.9e-12 using only `sqrt` and `*`, bit-identically across 100k invocations.
    - What's unclear: whether the project would rather change α to a value with a closed integer
      form, or accept the approximation.
    - Recommendation: **ship `pow_frac_det` in Phase 1** with `bits = 40`. Do not weaken the ban.
+   - **RESOLVED: D-12** — `pow_frac_det` ships in Phase 1 with `bits = 40`; α is not changed and the
+     `powf` ban is not weakened.
 
-4. **Where numerical-method constants live.**
+4. **Where numerical-method constants live.** — **RESOLVED: D-14, D-18.**
    - What we know: CORE-10 says *"Every simulation parameter loads from a TOML config … no serde
      defaults"*. `pow_frac_det`'s `bits`, and the milli/ppm scale factors, change trajectories
      but are not economics.
@@ -1442,23 +1454,34 @@ applies to invariants.
    - Recommendation: **code constants**, documented, with a `# GRADE: PROJECT` note in
      `config/PROVENANCE.md` explaining why they are not config. Confirm with the user — a strict
      reading of CORE-10 says otherwise.
+   - **RESOLVED: D-14** puts the constants in `src/numeric.rs`; **D-18** amends CORE-10 to scope
+     "parameter" to simulation and economic parameters and name the carve-out. The user
+     confirmation this item asked for was given as D-18 in `/gsd-discuss-phase`, and the amendment
+     it authorises is executed by plan `01-02` Task 2 with its rationale committed in the same diff.
 
-5. **`Money` overflow: panic vs `Result`.**
+5. **`Money` overflow: panic vs `Result`.** — **RESOLVED: D-07.**
    - Recommendation: **both**, split by API surface (Pattern 3). Needs one line of confirmation
      so the executor does not implement one and delete the other.
+   - **RESOLVED: D-07** — the split API, panicking operators plus a named `Result`-returning
+     surface. Both ship; neither is deleted.
 
-6. **How CORE-03 is restated so it is testable.**
+6. **How CORE-03 is restated so it is testable.** — **RESOLVED: D-17.**
    - Recommendation: split into "StdRng/SysRng absent from the graph" (testable, true) and
      "SmallRng/Xoshiro never used" (clippy + grep). Needs a REQUIREMENTS.md amendment or an
      explicit planner note, otherwise the phase gate is unpassable as written.
+   - **RESOLVED: D-17** — the two-clause form is fixed verbatim in CONTEXT.md and executed as a
+     `REQUIREMENTS.md` amendment by plan `01-02` Task 1, with the matching `CLAUDE.md` correction
+     in Task 3 of the same plan.
 
-7. **Is `HashMap` needed at all in v1?**
+7. **Is `HashMap` needed at all in v1?** — **RESOLVED: D-06.**
    - What we know: CLAUDE.md permits lookup-only use; Pitfall 5 shows the escape hatch is
      delicate.
    - Recommendation: **ban it outright in Phase 1 with no `Lookup` wrapper**, and add the wrapper
      only if a later phase demonstrably needs it. Every relation in the v1 model is dense-integer
      keyed (`Vec` by ID) or small enough for `BTreeMap`. Not building the escape hatch is the
      cheapest way to keep the lint honest.
+   - **RESOLVED: D-06** — banned outright on every path, no `Lookup` wrapper built. The wrapper is
+     recorded as a deferred idea in CONTEXT.md, revisited only on a demonstrated need.
 
 ---
 
