@@ -56,8 +56,17 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A TOML config with an unknown key, a missing key, or a removed value fails to load with a named error; `grep` finds no `#[serde(default)]` anywhere; the config hash is reproducible across runs.
   4. `cargo clippy` **fails the build** when code introduces a `HashMap`/`HashSet` on a behaviour path or calls one of the 31 non-deterministic `f64` methods; `Cargo.toml` contains no `rayon` and `rust-toolchain.toml` and `Cargo.lock` are committed.
   5. Every config value carries a source-grade annotation (A/B/C/PROJECT), and the Lengnick Table 1 values are checked against the published paper with any discrepancy recorded rather than silently adopted.
-**Plans**: TBD
-**Research**: light flag — RNG sub-stream keying scheme, and `f64` vs `i64` milli-units for `expected_demand`. Both cheap to research now, expensive to change later.
+**Plans**: 8 plans in 4 waves
+Plans:
+- [ ] 01-01-PLAN.md — Tracer: the crate spine end to end (config → hash → effective seed → sub-stream draw → Money), plus the committed toolchain pin, lockfile and release overflow check
+- [ ] 01-02-PLAN.md — Amend CORE-03 into two testable clauses and scope CORE-10, and correct the rand 0.10 small-RNG claim in CLAUDE.md
+- [ ] 01-03-PLAN.md — Money: panicking operators, the named Result API, and a split that conserves every cent under property test
+- [ ] 01-04-PLAN.md — RNG sub-streams: the bit-packed key, the Purpose enum, the re-entry guard and the fixed-draw samplers
+- [ ] 01-05-PLAN.md — Generational FirmId with an in-place-respawn arena, and the confined float domain with a deterministic fractional power
+- [ ] 01-06-PLAN.md — Config strictness: the full parameter schema, deny-unknown on every struct, and the exhaustive missing-key proof
+- [ ] 01-07-PLAN.md — The determinism lint wall: generated ban lists, a negative test that proves they block, and CI
+- [ ] 01-08-PLAN.md — Source-grade provenance, the UNVERIFIED rows and the Phase 6 verification procedure
+**Research**: light flag — RNG sub-stream keying scheme, and `f64` vs `i64` milli-units for `expected_demand`. Both cheap to research now, expensive to change later. Both resolved in `01-RESEARCH.md` and locked as CONTEXT.md D-01/D-02 and D-11/D-12.
 
 ### Phase 2: Books, Journal and Invariants
 **Goal**: A single ledger owns every cent and every goods unit, and the invariant checks halt the run on the tick a violation occurs, naming the offending posting.
