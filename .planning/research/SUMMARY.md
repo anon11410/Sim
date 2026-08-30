@@ -114,6 +114,16 @@ Two implementation constraints carry forward verbatim in effect: **subtract what
 
 ### C. Cadence — a correctness issue, not a tuning preference
 
+> **SUPERSEDED BY PROJECT DECISION (2026-08-30, post-research).** The user adopted the
+> **21-day month** planning cadence — the alternative this section describes as "closes this
+> gap entirely". Every published parameter is therefore used **verbatim at its source grade**:
+> γ = 24 planning cycles, χ = 0.1 of monthly payroll, reservation decay ×0.9 per month,
+> price step `U(0, 0.02)`, wage step `U(0, 0.019)`, `mc = wage / (productivity × 21)`.
+> **The weekly/daily conversion table below is retained for the record but must NOT be used** —
+> all grade-C derived arithmetic is void, and the γ cycles-vs-ticks trap does not arise.
+> Consequence elsewhere: the planning-cadence ACF artefact check is at **lag 21, not lag 7**.
+
+
 Every Lengnick rate is per **21-day month**. The brief plans **weekly** and states rates **per day**. Applying monthly numbers at a weekly cadence runs the whole adjustment side ~3× too fast. **Decision: keep the weekly planning cadence, rescale every rate, and put the conversion table in the config file as comments.** (Adopting a 21-day cadence instead is the alternative that closes this gap entirely — cheaper if the roadmapper prefers it, and it would make every Lengnick number drop in verbatim.)
 
 | Lengnick, per month (21d) | Per week (7d) | Per day |
@@ -144,7 +154,7 @@ The brief floors price at unit labour cost (a 1.0× multiplier) and omits a ceil
 
 **Decision: ship θ=0.75 as the primary, published desynchroniser. Keep the brief's weekly stagger as well, but implement it as a config-toggleable project deviation and record it as such.** Rationale: they attack different things (θ desynchronises the price decision; the stagger desynchronises the whole planning cycle), the brief mandates the stagger, and PITFALLS treats synchronised replanning as a first-class artefact source. Running both is safe; running neither is not.
 
-Two constraints on the stagger implementation: the per-firm offset must be **drawn once at init from the seeded RNG, not `firm_id % 7`** (which leaves 7 cohorts of ~3 firms still in lockstep, and correlates cadence with slot, which respawn then perturbs); and the ACF of the aggregate series must show **no spike at lag 7** — that is the directly computable artefact detector and it belongs in the harness. If the stagger turns out to be inert once θ is in, disabling it via config is a one-line experiment.
+Two constraints on the stagger implementation: the per-firm offset must be **drawn once at init from the seeded RNG, not `firm_id % 7`** (which leaves 7 cohorts of ~3 firms still in lockstep, and correlates cadence with slot, which respawn then perturbs); and the ACF of the aggregate series must show **no spike at the planning-cadence lag — 21 under the adopted 21-day month, not the lag 7 written here** — that is the directly computable artefact detector and it belongs in the harness. If the stagger turns out to be inert once θ is in, disabling it via config is a one-line experiment.
 
 ### F. Other reconciled conflicts
 
