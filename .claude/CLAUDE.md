@@ -121,7 +121,7 @@ right.
 | `rng.gen()` / `gen_range()` | `rng.random()` / `rng.random_range()` |
 | `OsRng`, `rand::thread_rng()` | `SysRng`, `rand::rng()` — *neither exists under our feature set, by design* |
 | `choose_multiple` / `choose_multiple_weighted` | `sample` / `sample_weighted` |
-| `SmallRng`, `ReseedingRng`, feature `small_rng` | Removed / not portable |
+| `SmallRng`, `ReseedingRng`, feature `small_rng` | The **feature** `small_rng` is gone, but the **type `SmallRng` is now unconditional** — `rand-0.10.2/src/rngs/mod.rs` re-exports it and the Xoshiro generators with no `cfg` guard; only `StdRng` sits behind `#[cfg(feature = "std_rng")]`. So under our feature set `StdRng` and `SysRng` do **not** resolve (confirmed by two compiler errors) while `SmallRng` still compiles. `ReseedingRng` is gone. Ban `SmallRng` by *use*, not by absence. (`01-RESEARCH.md` Pitfall 1.) |
 
 ### Determinism rules for RNG use
 
@@ -380,7 +380,7 @@ right.
 | Avoid | Why (specific failure mode) | Use Instead |
 |-------|------------------------------|-------------|
 | **`rand::rngs::StdRng`** | rand's own docs: *"Non-portable: any future library version may replace the algorithm … even with a fixed seed, output is not portable."* A `cargo update` silently changes every trajectory. | `rand::rngs::ChaCha8Rng` |
-| **`rand::rngs::SmallRng`** | Same disclaimer; the `small_rng` feature was removed in 0.10 entirely. | `ChaCha8Rng` |
+| **`rand::rngs::SmallRng`** | Non-portable by the same disclaimer. It cannot be removed from the dependency graph — in rand 0.10.2 the type is unconditional even with `small_rng` gone — so this is a **usage ban**, enforced by a `clippy.toml` `disallowed-types` entry plus a source grep test (CORE-03 clause (b)). (`01-RESEARCH.md` Pitfall 1.) | `ChaCha8Rng` |
 | **`fastrand` 2.5.0** | No cross-version output-stability contract. Designed for convenience randomness. | `ChaCha8Rng` |
 | **`rand::rng()` / `SysRng`** | OS entropy — the direct antithesis of a seeded run. **Our feature set makes them not compile**, which is the point. | The single threaded `ChaCha8Rng` |
 | **`std::collections::HashMap`/`HashSet` (iterated)** | Randomly seeded per-instance; iteration order varies run-to-run *and* map-to-map. Any behaviour derived from it is irreproducible. | `Vec` indexed by ID → `BTreeMap` → `IndexMap` |
