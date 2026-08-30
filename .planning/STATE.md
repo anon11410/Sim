@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-current_phase: 1
+current_phase: 01
 current_phase_name: Primitives and the Determinism Spine
-status: planning
+status: executing
 stopped_at: Phase 1 context gathered
-last_updated: "2026-08-30T21:46:42.157Z"
+last_updated: "2026-08-30T22:46:01.217Z"
 last_activity: 2026-08-30
 last_activity_desc: Roadmap created; 87/87 v1 requirements mapped across 11 phases
-state_head: 631aecfe26b767069a894910e371dc7513e93933
+state_head: bf480001e4bb42dbc060b59caf3f3c4bac9a2e98
 progress:
   total_phases: 11
   completed_phases: 0
-  total_plans: 0
+  total_plans: 8
   completed_plans: 0
   percent: 0
 ---
@@ -27,9 +27,9 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 
 ## Current Position
 
-Phase: 1 of 11 (Primitives and the Determinism Spine)
+Phase: 01 (Primitives and the Determinism Spine) — READY TO EXECUTE
 Plan: 0 of TBD in current phase
-Status: Ready to plan
+Status: Ready to execute
 Last activity: 2026-08-30 — Roadmap created; 87/87 v1 requirements mapped across 11 phases
 
 Progress: [░░░░░░░░░░] 0%
@@ -85,6 +85,21 @@ Items acknowledged and deferred at milestone close, most recent first:
 | Category | Item | Status | Deferred At | Milestone |
 |----------|------|--------|-------------|-----------|
 | *(none)* | | | | |
+
+### Gate overrides (Phase 1 planning)
+
+- **Decision coverage gate (`check.decision-coverage-plan`) — overridden at plan time, 2026-08-30.**
+  The gate returned `passed: false, reason: "could-not-parse"`. This is a parser limitation, not a
+  coverage gap: its per-bullet regex reads a single line and rejects a title containing `*` or more
+  than one `:`, so three CONTEXT.md bullets are unreadable to it — D-09 (`Money::split(n)`, extra
+  colons in inline code), D-23 (`*generated*`) and D-26 (`*effective*`). Nine further bullets whose
+  bold title had wrapped onto a second line were fixed in `bf48000` (whitespace only), taking the
+  parser from 16 to 23 of 26. On a `could-not-parse` outcome the handler emits a hard-coded
+  `covered: 0` and never counts, so it cannot certify coverage either way.
+  Coverage was instead established directly: all 26 decisions (D-01 … D-26) are cited across the
+  eight PLAN.md files, confirmed by grep and independently by the gsd-plan-checker on both of its
+  passes. The three remaining bullets were left as written — editing the prose of locked user
+  decisions to satisfy a regex is the wrong trade. Re-surface at verify-phase.
 
 ## Session Continuity
 
