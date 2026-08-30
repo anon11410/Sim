@@ -7,5 +7,6 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod ids;
 pub mod money;
 pub mod rng;
