@@ -5,16 +5,41 @@
 //! constructor `from_cents` is used at config ingestion and initial endowment
 //! only; everything thereafter moves existing money.
 //!
-//! Overflow policy (D-07, operator half): the operator impls route through
-//! `i64::checked_*` and panic in **every** build profile, including a default
-//! release build with no `overflow-checks`. The named `Result`-returning API
-//! (`checked_add`, `checked_sub`, `try_scale`) arrives with plan 01-03.
+//! Overflow policy is a **split API** (D-07), and both halves ship together:
+//!
+//! * **The operator impls** (`Add`, `Sub`, `AddAssign`, `SubAssign`, `Neg`,
+//!   `Sum`) route through `i64::checked_*` and `.expect(...)`. They panic in
+//!   **every** build profile, including a default release build with no
+//!   `overflow-checks`, because the check is in the code and not in the
+//!   profile. Overflow on an operator is a program bug: money here is a fixed
+//!   pile that cannot approach `i64::MAX`, so aborting is the right answer.
+//! * **The named API** (`checked_add`, `checked_sub`, `try_scale`) returns
+//!   `Result<Money, MoneyOverflow>` and never panics. It exists for the one
+//!   place overflow is a legitimate runtime condition rather than a bug:
+//!   `src/config.rs` ingesting an operator-supplied `total_money_cents`, which
+//!   should surface a named `ConfigError` instead of aborting the process.
+//!
+//! Neither half may be deleted in favour of the other.
 //!
 //! Deliberately absent, and to stay absent: any conversion to or from a
 //! floating-point type, floating-point multiplication, and a decimal
 //! `Display`. A float must never reach money except through an explicit,
-//! named rounding function. This module names no floating-point type at all,
-//! which is the grep-able form of that rule.
+//! named rounding function, which `src/numeric.rs` owns. This module names no
+//! floating-point type at all, which is the grep-able form of that rule.
+
+use thiserror::Error;
+
+/// A checked money operation that could not be represented in `i64` cents.
+///
+/// Carries the operands and the operator so a `ConfigError` can quote the
+/// arithmetic that failed rather than a bare "overflow".
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+#[error("money overflow: {lhs} {op} {rhs}")]
+pub struct MoneyOverflow {
+    pub lhs: i64,
+    pub op: &'static str,
+    pub rhs: i64,
+}
 
 /// An amount of money, in integer cents.
 #[derive(
@@ -37,7 +62,45 @@ impl Money {
     pub const fn cents(self) -> i64 {
         self.0
     }
+
+    // --- The named, non-panicking API (D-07, Result half) ----------------
+
+    /// `self + other`, reporting overflow as a value instead of a panic.
+    pub fn checked_add(self, other: Money) -> Result<Money, MoneyOverflow> {
+        self.0
+            .checked_add(other.0)
+            .map(Money)
+            .ok_or(MoneyOverflow { lhs: self.0, op: "+", rhs: other.0 })
+    }
+
+    /// `self - other`, reporting overflow as a value instead of a panic.
+    pub fn checked_sub(self, other: Money) -> Result<Money, MoneyOverflow> {
+        self.0
+            .checked_sub(other.0)
+            .map(Money)
+            .ok_or(MoneyOverflow { lhs: self.0, op: "-", rhs: other.0 })
+    }
+
+    /// `self * num / den`, multiplying first and truncating toward zero.
+    ///
+    /// Multiplying before dividing keeps the full precision of the ratio in
+    /// the integer domain — there is no intermediate rounding and no float.
+    /// Returns `Err` on multiplication overflow, on a zero denominator, and
+    /// on the one division that cannot be represented.
+    pub fn try_scale(self, num: i64, den: i64) -> Result<Money, MoneyOverflow> {
+        let product = self
+            .0
+            .checked_mul(num)
+            .ok_or(MoneyOverflow { lhs: self.0, op: "*", rhs: num })?;
+
+        product
+            .checked_div(den)
+            .map(Money)
+            .ok_or(MoneyOverflow { lhs: product, op: "/", rhs: den })
+    }
 }
+
+// --- The operator API: panics in EVERY build profile (D-07) --------------
 
 impl std::ops::Add for Money {
     type Output = Money;
@@ -50,6 +113,59 @@ impl std::ops::Add for Money {
                 .checked_add(other.0)
                 .expect("Money overflow on add"),
         )
+    }
+}
+
+impl std::ops::Sub for Money {
+    type Output = Money;
+
+    /// Panics on overflow in every profile.
+    fn sub(self, other: Money) -> Money {
+        Money(
+            self.0
+                .checked_sub(other.0)
+                .expect("Money overflow on sub"),
+        )
+    }
+}
+
+impl std::ops::Neg for Money {
+    type Output = Money;
+
+    /// Panics on overflow in every profile — negating the minimum has no
+    /// representable answer.
+    fn neg(self) -> Money {
+        Money(self.0.checked_neg().expect("Money overflow on neg"))
+    }
+}
+
+impl std::ops::AddAssign for Money {
+    /// Delegates to the checked `Add`, so it panics identically.
+    fn add_assign(&mut self, other: Money) {
+        *self = *self + other;
+    }
+}
+
+impl std::ops::SubAssign for Money {
+    /// Delegates to the checked `Sub`, so it panics identically.
+    fn sub_assign(&mut self, other: Money) {
+        *self = *self - other;
+    }
+}
+
+impl std::iter::Sum for Money {
+    /// Folds through the checked `Add` — never over a raw integer
+    /// accumulator, which is the one path that would wrap silently (D-08).
+    /// An empty iterator sums to `Money::ZERO`.
+    fn sum<I: Iterator<Item = Money>>(iter: I) -> Money {
+        iter.fold(Money::ZERO, |acc, item| acc + item)
+    }
+}
+
+impl<'a> std::iter::Sum<&'a Money> for Money {
+    /// Folds through the checked `Add`, exactly as the owned impl does.
+    fn sum<I: Iterator<Item = &'a Money>>(iter: I) -> Money {
+        iter.fold(Money::ZERO, |acc, item| acc + *item)
     }
 }
 
