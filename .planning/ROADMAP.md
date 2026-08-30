@@ -58,7 +58,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   2. Two constructions of the RNG from the same master seed produce identical `u64` streams; sub-streams keyed on different `(tick, agent_id, purpose)` tuples produce **different** streams, so an added draw in one market provably cannot perturb another. Counter-check: a different master seed produces a different stream, so a constant RNG cannot pass.
   3. A TOML config with an unknown key, a missing key, or a removed value fails to load with a named error; `grep` finds no `#[serde(default)]` anywhere; the config hash is reproducible across runs.
   4. `cargo clippy` **fails the build** when code introduces a `HashMap`/`HashSet` on a behaviour path or calls one of the 31 non-deterministic `f64` methods; `Cargo.toml` contains no `rayon` and `rust-toolchain.toml` and `Cargo.lock` are committed.
-  5. Every config value carries a source-grade annotation (A/B/C/PROJECT), and the Lengnick Table 1 values are checked against the published paper with any discrepancy recorded rather than silently adopted.
+  5. Every config value carries a source-grade annotation (A/B/C/PROJECT), asserted by the annotation test — which names any unannotated key — rather than by review. The second half of CORE-11, that the Lengnick Table 1 values are checked against the published paper with any discrepancy recorded rather than silently adopted, is **gated on Phase 6 per D-19** — primary-source access is egress-blocked here and no phase before 6 consumes the values; until that gate runs the affected rows stand marked `UNVERIFIED` in `config/PROVENANCE.md`. Deferred, not dropped: Phase 1 ships the machinery, the honest marking and the verification procedure.
 
 **Plans**: 1/8 plans executed in 4 waves
 Plans:
@@ -155,6 +155,7 @@ Plans:
   3. A hired household's wage is fixed for the life of its contract and changes only on quit, fire or bankruptcy; a firm short of payroll pays what it can and fires those it cannot afford, and no balance ever goes negative.
   4. Wealth rank correlates ≈ 0 with agent ID after 3,650 ticks, proving the per-tick seeded reshuffle of job-seeker and worker order is doing its job and no spurious ID-monotone distribution has formed.
   5. Reservation wages ratchet to `max(current, wage_received)` while employed and decay ×0.9 per 21-day month while unemployed, never falling below a positive floor; every comparator over agents is tie-broken by agent ID.
+  6. **CORE-11 clause (b), gated here per D-19**: before these values are consumed, the Lengnick Table 1 rows marked `UNVERIFIED` in `config/PROVENANCE.md` have been checked against the published paper by a person with journal access, following the procedure shipped in Phase 1 — each row recorded as agrees / differs (with the paper's value written down) / not in Table 1, and any discrepancy written down and the config updated with a note rather than silently adopted.
 
 **Plans**: TBD
 **Research**: **flagged** — the reservation-wage / wage-step coupling is the widest-sensitivity parameter region in the model, both error signs produce plausible-looking pathologies, and the Lengnick values are grade B rather than read from the paper.
