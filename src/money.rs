@@ -98,6 +98,52 @@ impl Money {
             .map(Money)
             .ok_or(MoneyOverflow { lhs: product, op: "/", rhs: den })
     }
+
+    // --- Conserving division (D-09) ---------------------------------------
+
+    /// Divide into `n` parts that sum **exactly** back to `self`.
+    ///
+    /// The remainder `self.cents() % n` is not discarded: the first
+    /// `|remainder|` recipients — indices `0..|remainder|`, ascending — each
+    /// receive one extra cent. That ascending-index rule is the contract
+    /// LEDG-03's ledger and OWN-06's dividends are written against, and every
+    /// committed run's trajectory depends on it, so do not "tidy" it into a
+    /// rounding helper. Negative amounts distribute a negative extra cent, so
+    /// the exact-sum property holds on both signs rather than only above zero.
+    ///
+    /// # Panics
+    ///
+    /// If `n == 0`. A zero recipient count is a programming error, not a
+    /// runtime condition, and returning an empty vector would silently destroy
+    /// the whole amount — the leakage this function exists to prevent.
+    pub fn split(self, n: u32) -> Vec<Money> {
+        assert!(n != 0, "Money::split called with a recipient count of zero");
+
+        let divisor = i64::from(n);
+        let base = self
+            .0
+            .checked_div(divisor)
+            .expect("Money overflow on split division");
+        let remainder = self
+            .0
+            .checked_rem(divisor)
+            .expect("Money overflow on split remainder");
+
+        // `remainder` carries the sign of the amount and `|remainder| < n`, so
+        // the count always fits, and the extra cent moves the bumped part away
+        // from zero in the direction the amount itself points.
+        let extra_recipients = remainder.unsigned_abs();
+        let extra_cent: i64 = if remainder < 0 { -1 } else { 1 };
+        let bumped = base
+            .checked_add(extra_cent)
+            .expect("Money overflow on split remainder distribution");
+
+        let mut parts = Vec::with_capacity(n as usize);
+        for index in 0..u64::from(n) {
+            parts.push(Money(if index < extra_recipients { bumped } else { base }));
+        }
+        parts
+    }
 }
 
 // --- The operator API: panics in EVERY build profile (D-07) --------------
