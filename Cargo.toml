@@ -1,0 +1,27 @@
+[package]
+name = "sim"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rand      = { version = "0.10.2", default-features = false, features = ["std", "chacha"] }
+serde     = { version = "1.0.229", features = ["derive"] }
+toml      = "1.1.4"
+sha2      = "0.10.9"          # NOT 0.11 -- 0.11's digest type has no LowerHex impl (D-25)
+thiserror = "2.0.20"
+clap      = { version = "4.6.6", features = ["derive"] }
+anyhow    = "1.0.104"
+
+[dev-dependencies]
+proptest = "1.11.0"
+
+[profile.release]
+# CORE-02 / D-10: default release silently wraps i64 arithmetic. Keep `panic`
+# at its default `unwind` -- `panic = "abort"` would break #[should_panic].
+overflow-checks = true
+
+[lints.clippy]
+# D-21: the lists themselves live in clippy.toml (plan 01-07). An absent
+# clippy.toml is an empty list, not an error.
+disallowed_types   = "deny"
+disallowed_methods = "deny"

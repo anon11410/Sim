@@ -1,0 +1,14 @@
+# Baseline parameters for the minimal closed economy.
+#
+# Every parameter the simulation reads lives in this file; nothing is hardcoded
+# in logic. Plan 01-06 widens this to the full parameter set and plan 01-08
+# annotates every key with its source grade.
+
+[sim]
+ticks      = 3650
+seed       = 42
+households = 200
+firms      = 20
+
+[money]
+total_money_cents = 2000000
