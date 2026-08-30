@@ -64,15 +64,37 @@ pub const MILLI_SCALE: i64 = 1_000;
 ///
 /// The three-argument form exists so `bits` can be swept in a test. Callers on
 /// the behaviour path use [`pow_frac`], which fixes it at [`POW_FRAC_BITS`].
-pub fn pow_frac_det(_x: f64, _alpha: f64, _bits: u32) -> f64 {
-    todo!("implemented in the GREEN step")
+pub fn pow_frac_det(x: f64, alpha: f64, bits: u32) -> f64 {
+    debug_assert!(x > 0.0, "pow_frac_det is defined for a positive base only");
+    debug_assert!(
+        alpha > 0.0 && alpha < 1.0,
+        "pow_frac_det is defined for a power strictly between zero and one"
+    );
+
+    let mut accumulator = 1.0f64;
+    let mut root = x;
+    let mut remaining = alpha;
+
+    for _ in 0..bits {
+        // One more square root: `root` is now x^(2^-k) at iteration k.
+        root = root.sqrt();
+        // Shift `remaining` left by one binary place; a carry past one means
+        // this bit of the power is set, so fold the current root in.
+        remaining *= 2.0;
+        if remaining >= 1.0 {
+            accumulator *= root;
+            remaining -= 1.0;
+        }
+    }
+
+    accumulator
 }
 
 /// `x` raised to the power `alpha` at the committed [`POW_FRAC_BITS`].
 ///
 /// This is the entry point the behaviour path calls.
-pub fn pow_frac(_x: f64, _alpha: f64) -> f64 {
-    todo!("implemented in the GREEN step")
+pub fn pow_frac(x: f64, alpha: f64) -> f64 {
+    pow_frac_det(x, alpha, POW_FRAC_BITS)
 }
 
 /// The **only** crossing from the float domain to the integer domain in this
@@ -89,8 +111,9 @@ pub fn pow_frac(_x: f64, _alpha: f64) -> f64 {
 /// Note that this rounds only where the model needs a whole number of units.
 /// The demand field itself is written to the run record at full round-trip
 /// precision and is never truncated on the way out (D-13).
-pub fn demand_to_units(_x: f64) -> i64 {
-    todo!("implemented in the GREEN step")
+pub fn demand_to_units(x: f64) -> i64 {
+    debug_assert!(x.is_finite(), "a non-finite value reached the crossing");
+    x.round() as i64
 }
 
 #[cfg(test)]
