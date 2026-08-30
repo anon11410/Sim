@@ -1,0 +1,10 @@
+# GSD runtime state (per-machine, regenerated on demand)
+.claude/gsd-install-state.json
+
+# Node
+node_modules/
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+*.swp
