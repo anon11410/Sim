@@ -15,7 +15,7 @@
   - *Rationale (amended 2026-08-30; authority: `01-CONTEXT.md` D-17).* The original wording required `StdRng` **and** `SmallRng` to be absent from the dependency graph. `rand` 0.10.2 makes `SmallRng` unconditional — `rngs/mod.rs:97-108` re-exports it and the Xoshiro generators with no `cfg` guard — while feature-gating only `StdRng`, behind `#[cfg(feature = "std_rng")]`. This was verified from crate source and by compiling on `rustc 1.94.1` (`01-RESEARCH.md` Pitfall 1): `StdRng` and `rand::rng()` fail to resolve under our feature set, while `SmallRng` still compiles. Absence from the graph is unachievable for `SmallRng` without forking `rand`, so without this amendment the Phase 1 gate reads as failed permanently. Clause (b) bans *use*, which is what the gate was always for — this is a restatement, not a loosening.
 - [x] **CORE-04**: RNG draws are namespaced into per-purpose sub-streams keyed on `(master_seed, tick, agent_id, purpose)`, so changing the draw count in one market cannot perturb another
 - [x] **CORE-05**: Sampling uses fixed-draw algorithms (partial Fisher-Yates), never rejection sampling
-- [ ] **CORE-06**: Firm identity is generational (`FirmId { slot, gen }`) and accessors return `Option`, so a stale ID after respawn is a typed miss rather than a silent hit on a different firm
+- [x] **CORE-06**: Firm identity is generational (`FirmId { slot, gen }`) and accessors return `Option`, so a stale ID after respawn is a typed miss rather than a silent hit on a different firm
 - [ ] **CORE-07**: `clippy.toml` bans `HashMap`/`HashSet` on behaviour paths and the 31 non-deterministic `f64` methods, enforced in CI
 - [x] **CORE-08**: Crate is `lib.rs` plus a thin `main.rs` so integration tests can reach all code
 - [x] **CORE-09**: `Cargo.lock` and `rust-toolchain.toml` are committed; no `rayon` dependency and no `-C target-cpu=native`
@@ -195,7 +195,7 @@ Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no dup
 | CORE-03 | Phase 1 | Complete |
 | CORE-04 | Phase 1 | Complete |
 | CORE-05 | Phase 1 | Complete |
-| CORE-06 | Phase 1 | Pending |
+| CORE-06 | Phase 1 | Complete |
 | CORE-07 | Phase 1 | Pending |
 | CORE-08 | Phase 1 | Complete |
 | CORE-09 | Phase 1 | Complete |

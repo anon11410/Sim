@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Primitives and the Determinism Spine
 status: executing
-stopped_at: Completed 01-04-PLAN.md
-last_updated: "2026-08-30T23:39:30.497Z"
+stopped_at: Completed 01-05-PLAN.md
+last_updated: "2026-08-30T23:51:54.068Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 01 execution started
-state_head: 984e3954c72b42eecf7cdee73a1081c0aa021772
+state_head: 3ea4307eeddc889a8c1d61b5dd7c0807d299ae24
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 8
-  completed_plans: 4
+  completed_plans: 5
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 01 (Primitives and the Determinism Spine) — EXECUTING
-Plan: 5 of 8
+Plan: 6 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 01 execution started
 
@@ -62,6 +62,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P02 | 4 min | 4 tasks | 3 files |
 | Phase 01 P03 | 5 min | 3 tasks | 3 files |
 | Phase 01 P04 | 10 min | 3 tasks | 3 files |
+| Phase 01 P05 | 10 min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,10 @@ Recent decisions affecting current work:
 - [Phase 01]: Purpose discriminants are append-only and gapped per subsystem (10/11 activation, 20/21 labour, 30/31 goods, 40-43 price+wage, 50 bankruptcy). A later phase adding a draw site appends a variant AND must add it to ALL_PURPOSES, or the injectivity sweep silently stops covering it.
 - [Phase 01]: The RNG re-entry guard is debug-only by design — a decade-long run opens millions of sub-streams and a release-build BTreeSet of issued keys would grow without bound. Ordered set, never hashed (CORE-07).
 - [Phase 01]: getrandom IS in the dependency graph, but only via the proptest dev-dependency (rand 0.9 and tempfile). The correct CORE-03 check is 'cargo tree --edges normal', already asserted in tests/toolchain.sh from plan 01-01 — a bare 'cargo tree | grep getrandom' produces a false failure.
+- [Phase 01]: The generational field is spelled `generation`, not `gen`: `gen` is a reserved keyword in Rust edition 2024 and does not parse as an identifier (verified by compile error). The `r#gen` escape would force a raw identifier at every construction and field access for ten more phases. Type shape, derived total order on (slot, generation) and the log identity are unchanged, but the spelling now diverges from CORE-06, 01-RESEARCH.md Pattern 5 and D-03 and propagates into the Phase 3 log schema — flagged for human confirmation at verify-phase.
+- [Phase 01]: FirmArena exposes no element-removal operation at all — not swap_remove, remove, retain, drain, truncate or pop. respawn_in_place is the only mutation of the slot vector and changes no index and no length, so BANK-03 is enforced by absence rather than by review. The arena has no vacancy concept: live_ids always returns one identity per slot.
+- [Phase 01]: src/numeric.rs contains no occurrence of the substrings powf, exp, ln or log anywhere, including in prose — its documentation is deliberately worded around them so the mechanical grep for the banned float methods needs no comment-stripping heuristic and no exception to be argued with.
+- [Phase 01]: The float-confinement test allowlist is file-level and comment-blind: a floating-point type named in a doc comment counts. src/rng.rs was reworded rather than the test loosened, because a heuristic that skips comments is one someone later widens to skip a string, then a macro. This is the module-level half of the float ban; 01-07 lint wall is the method-level half, and neither is sufficient alone.
 
 ### Pending Todos
 
@@ -122,6 +127,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-30T23:39:18.556Z
-Stopped at: Completed 01-04-PLAN.md
+Last session: 2026-08-30T23:51:22.870Z
+Stopped at: Completed 01-05-PLAN.md
 Resume file: None
