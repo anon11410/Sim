@@ -35,8 +35,7 @@ the rationale is written out for exactly that reason.
 
 ### RNG and determinism
 
-- **D-01: RNG sub-streams are addressed by a bit-packed `set_stream(u64)` nonce, not by hashed
-  child seeds.** Layout is `tick:24 | agent:24 | purpose:16` (high bits → low bits).
+- **D-01: RNG sub-streams are addressed by a bit-packed `set_stream(u64)` nonce, not by hashed child seeds.** Layout is `tick:24 | agent:24 | purpose:16` (high bits → low bits).
   Rationale: the packing is **bijective**, so distinct `(tick, agent, purpose)` tuples produce
   distinct nonces by arithmetic rather than by a collision-resistance argument; and it measured
   **237 ms vs 1390 ms** (5.9×) for 3.65 M sub-streams against the SHA-256 child-seed
@@ -54,8 +53,7 @@ the rationale is written out for exactly that reason.
   in the same slot must not inherit the previous occupant's keystream position, and `gen` must
   not widen the key. Households use their index directly. Interaction with CORE-06 noted by
   research; the planner must not let `FirmId`'s two fields both leak into the key.
-- **D-04: Re-entering an already-used sub-stream key is a defect, and the API must make it
-  hard.** Research verified the hazard by execution: re-entering the same key **replays the
+- **D-04: Re-entering an already-used sub-stream key is a defect, and the API must make it hard.** Research verified the hazard by execution: re-entering the same key **replays the
   same values**. The `Rngs` façade hands out short-lived `Stream` scopes; the planner should
   include a debug-build used-key guard (or an equivalent construction that cannot be re-opened
   within a tick) so a double-open fails loudly in tests rather than silently correlating two
@@ -63,8 +61,7 @@ the rationale is written out for exactly that reason.
 - **D-05: Samplers are hand-rolled and fixed-draw (partial Fisher-Yates).** `rand`'s own
   `random_range`, `Uniform::sample` and `seq::index::sample` were all verified **not**
   fixed-draw. A variable draw count would defeat D-01's isolation guarantee from inside.
-- **D-06: `HashMap`/`HashSet` are banned outright on every path, with no `Lookup` escape
-  wrapper.** CLAUDE.md permits lookup-only use; this phase declines to build the hatch. Every
+- **D-06: `HashMap`/`HashSet` are banned outright on every path, with no `Lookup` escape wrapper.** CLAUDE.md permits lookup-only use; this phase declines to build the hatch. Every
   v1 relation is dense-integer keyed (`Vec` by ID) or small enough for `BTreeMap`. Add a
   wrapper only if a later phase demonstrably needs one — not building it is the cheapest way
   to keep the lint honest. — **Reversibility:** reversible — adding the wrapper later is a
@@ -72,8 +69,7 @@ the rationale is written out for exactly that reason.
 
 ### Money
 
-- **D-07: `Money` overflow is handled by a split API, resolving the ROADMAP/CLAUDE.md
-  conflict.** Operator impls (`Add`, `Sub`, `AddAssign`, `Neg`, `Sum`) route through `checked_*`
+- **D-07: `Money` overflow is handled by a split API, resolving the ROADMAP/CLAUDE.md conflict.** Operator impls (`Add`, `Sub`, `AddAssign`, `Neg`, `Sum`) route through `checked_*`
   and `.expect(...)` and therefore **panic in every build profile** — satisfying ROADMAP
   criterion 1. A named API (`checked_add`, `checked_sub`, `try_scale`) returns
   `Result<Money, MoneyOverflow>` and is used **only at config ingestion**, where an absurd
@@ -83,8 +79,7 @@ the rationale is written out for exactly that reason.
   the executor does not implement one and delete the other.**
 - **D-08: `Money` does not implement `Sum` via `fold(0, +)` on the raw `i64`** — it routes
   through the checked `Add`. A raw fold is the one path that would wrap silently.
-- **D-09: `Money::split(n)` distributes the remainder to the first `r = amount % n` recipients
-  by ascending index**, and the proptest strategy must include a case where `a % n != 0`.
+- **D-09: `Money::split(n)` distributes the remainder to the first `r = amount % n` recipients by ascending index**, and the proptest strategy must include a case where `a % n != 0`.
   ROADMAP criterion 1 is explicit about this: without the non-even case, a `vec![a/n; n]`
   implementation that destroys `r` cents passes the test.
 - **D-10: `overflow-checks = true` in `[profile.release]` ships anyway, as a second belt.**
@@ -105,8 +100,7 @@ the rationale is written out for exactly that reason.
   formula by hand, an undocumented 0.003-unit dead band, a truncation story — remain.
   — **Reversibility:** costly — the field type propagates into the log schema, the price and
   wage rules (Phase 9) and the harness's dtype assertions (Phase 4).
-- **D-12: `pow_frac_det` ships in Phase 1 with `bits = 40`. The `powf` ban is not weakened and
-  α is not changed to fit a closed integer form.** `x^α` for `0 < α < 1` is computed by binary
+- **D-12: `pow_frac_det` ships in Phase 1 with `bits = 40`. The `powf` ban is not weakened and α is not changed to fit a closed integer form.** `x^α` for `0 < α < 1` is computed by binary
   expansion of the exponent using only `sqrt` and `*`. Measured against `powf`: worst relative
   error **1.9e-12** over 20,000 inputs, and **bit-identical across 100,000 invocations** —
   which is precisely the property `powf` does not have (std: *"precision is non-deterministic …
@@ -128,8 +122,7 @@ the rationale is written out for exactly that reason.
   config structs — research verified it is a **hidden serde default with no attribute to grep
   for**, so a `grep` for `#[serde(default)]` alone does not satisfy ROADMAP criterion 3. The
   missing-key test is an **exhaustive loop over every field**, not a spot check.
-- **D-16: Source-grade annotation follows the scheme already defined in-repo — it is not
-  reinvented.** `.planning/research/SUMMARY.md:169` defines A / B / C / PROJECT, and the graded
+- **D-16: Source-grade annotation follows the scheme already defined in-repo — it is not reinvented.** `.planning/research/SUMMARY.md:169` defines A / B / C / PROJECT, and the graded
   37-row parameter table already exists at `SUMMARY.md:171-209`. The config-annotation task is
   **transcription plus a schema**, not research. Convention: a TOML comment block above each key
   carrying `GRADE`, `SOURCE` and `CADENCE`.
@@ -155,8 +148,7 @@ the rationale is written out for exactly that reason.
 
 ### CORE-11 — the Lengnick Table 1 verification
 
-- **D-19: Phase 1 ships the provenance machinery; the paper verification itself moves to a
-  blocking gate on Phase 6.** Phase 1 writes `config/PROVENANCE.md` enumerating all 18
+- **D-19: Phase 1 ships the provenance machinery; the paper verification itself moves to a blocking gate on Phase 6.** Phase 1 writes `config/PROVENANCE.md` enumerating all 18
   Lengnick-attributed rows, each marked `GRADE: B | UNVERIFIED`, above a
   **domain-knowledge-free verification procedure**: open the published JEBO article, and for
   each row record `agrees` / `differs (paper says X)` / `not in Table 1`. Phase 1 does **not**
@@ -182,8 +174,7 @@ the rationale is written out for exactly that reason.
 - **D-22: CI runs `cargo clippy --all-targets --all-features -- -D warnings`.** Plain
   `cargo clippy` **does not lint `tests/`** — verified. A determinism hazard introduced in a
   test would otherwise pass.
-- **D-23: The banned-`f64`-method list is *generated* from local std source, not typed by
-  hand**, and every entry carries a negative test proving it blocks. Research verified two
+- **D-23: The banned-`f64`-method list is *generated* from local std source, not typed by hand**, and every entry carries a negative test proving it blocks. Research verified two
   silent holes: clippy **silently ignores `disallowed-methods` paths it cannot resolve**, and a
   `type` alias **silently defeats `disallowed_types`**. So the `HashMap` ban (D-06) needs a grep
   test alongside the clippy rule.
