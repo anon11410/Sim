@@ -100,44 +100,90 @@ pub struct FirmArena<T> {
 impl<T> FirmArena<T> {
     /// Build an arena from an occupant per slot. Every slot starts at
     /// generation 0, and slot `i` holds `occupants[i]`.
-    pub fn with_occupants(_occupants: Vec<T>) -> Self {
-        todo!("implemented in the GREEN step")
+    pub fn with_occupants(occupants: Vec<T>) -> Self {
+        FirmArena {
+            slots: occupants
+                .into_iter()
+                .map(|occupant| SlotRecord {
+                    generation: 0,
+                    occupant,
+                })
+                .collect(),
+        }
     }
 
     /// Number of slots. Fixed for the life of the arena.
     pub fn len(&self) -> usize {
-        todo!("implemented in the GREEN step")
+        self.slots.len()
     }
 
     /// Whether the arena has no slots.
     pub fn is_empty(&self) -> bool {
-        todo!("implemented in the GREEN step")
+        self.slots.is_empty()
     }
 
     /// The occupant `id` names, or `None` if `id` is stale or out of range.
-    pub fn get(&self, _id: FirmId) -> Option<&T> {
-        todo!("implemented in the GREEN step")
+    ///
+    /// The generation comparison is the whole point of the type: an identity
+    /// held across a respawn of its slot resolves here to `None`, never to the
+    /// new occupant.
+    pub fn get(&self, id: FirmId) -> Option<&T> {
+        let record = self.slots.get(id.slot.0 as usize)?;
+        (record.generation == id.generation).then_some(&record.occupant)
     }
 
     /// The occupant `id` names, mutably, or `None` if `id` is stale or out of
-    /// range.
-    pub fn get_mut(&mut self, _id: FirmId) -> Option<&mut T> {
-        todo!("implemented in the GREEN step")
+    /// range. Same generation check as [`FirmArena::get`].
+    pub fn get_mut(&mut self, id: FirmId) -> Option<&mut T> {
+        let record = self.slots.get_mut(id.slot.0 as usize)?;
+        (record.generation == id.generation).then_some(&mut record.occupant)
     }
 
     /// The current identity of `slot`, or `None` if the slot is out of range.
-    pub fn id_at(&self, _slot: FirmSlot) -> Option<FirmId> {
-        todo!("implemented in the GREEN step")
+    pub fn id_at(&self, slot: FirmSlot) -> Option<FirmId> {
+        let record = self.slots.get(slot.0 as usize)?;
+        Some(FirmId {
+            slot,
+            generation: record.generation,
+        })
     }
 
     /// Replace the occupant of `slot` and issue its successor identity.
-    pub fn respawn_in_place(&mut self, _slot: FirmSlot, _occupant: T) -> FirmId {
-        todo!("implemented in the GREEN step")
+    ///
+    /// The replacement lands at the same index; the vector's length and the
+    /// position of every other slot are untouched, so agent iteration order is
+    /// unchanged (BANK-03). Every identity previously issued for this slot is
+    /// stale from this point on.
+    ///
+    /// Panics if `slot` is out of range: the arena is fixed-length for the life
+    /// of a run, so an out-of-range slot is a program defect and not a runtime
+    /// condition to report.
+    pub fn respawn_in_place(&mut self, slot: FirmSlot, occupant: T) -> FirmId {
+        let record = self
+            .slots
+            .get_mut(slot.0 as usize)
+            .expect("respawn_in_place called with a slot outside the arena");
+        record.generation += 1;
+        record.occupant = occupant;
+        FirmId {
+            slot,
+            generation: record.generation,
+        }
     }
 
     /// Every current identity, in ascending slot order.
+    ///
+    /// The arena has no vacancy concept — every slot is occupied for the whole
+    /// run — so the result always has one identity per slot.
     pub fn live_ids(&self) -> Vec<FirmId> {
-        todo!("implemented in the GREEN step")
+        self.slots
+            .iter()
+            .enumerate()
+            .map(|(index, record)| FirmId {
+                slot: FirmSlot(index as u16),
+                generation: record.generation,
+            })
+            .collect()
     }
 }
 
@@ -146,7 +192,10 @@ mod tests {
     use super::*;
 
     fn fid(slot: u16, generation: u32) -> FirmId {
-        FirmId { slot: FirmSlot(slot), generation }
+        FirmId {
+            slot: FirmSlot(slot),
+            generation,
+        }
     }
 
     #[test]
