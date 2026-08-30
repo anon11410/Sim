@@ -11,3 +11,7 @@ npm-debug.log*
 
 # GSD research agent web-fetch cache (transient, per-machine)
 .planning/research/.cache/
+
+# GSD run-scoped runtime state (per-machine/per-session, regenerated on demand)
+.gsd/
+.planning/milestone.lock
