@@ -1,0 +1,68 @@
+{
+  "contract": "1.0.0",
+  "flavor": "core",
+  "milestone": null,
+  "phases": [
+    {
+      "number": "1",
+      "name": "Primitives and the Determinism Spine",
+      "status": "pending"
+    },
+    {
+      "number": "2",
+      "name": "Books, Journal and Invariants",
+      "status": "pending"
+    },
+    {
+      "number": "3",
+      "name": "World, Tick Pipeline and Log Seam",
+      "status": "pending"
+    },
+    {
+      "number": "4",
+      "name": "Python Acceptance Harness Skeleton",
+      "status": "pending"
+    },
+    {
+      "number": "5",
+      "name": "Goods, Recipes and Production",
+      "status": "pending"
+    },
+    {
+      "number": "6",
+      "name": "Labour Market, Wages and Reservation Wages",
+      "status": "pending"
+    },
+    {
+      "number": "7",
+      "name": "Goods Market and Consumption",
+      "status": "pending"
+    },
+    {
+      "number": "8",
+      "name": "Ownership, Accounting and Dividends",
+      "status": "pending"
+    },
+    {
+      "number": "9",
+      "name": "Firm Planning",
+      "status": "pending"
+    },
+    {
+      "number": "10",
+      "name": "Bankruptcy and Respawn",
+      "status": "pending"
+    },
+    {
+      "number": "11",
+      "name": "Calibration, Burn-in and Full Acceptance",
+      "status": "pending"
+    }
+  ],
+  "next": {
+    "command": "/gsd:progress --next",
+    "label": "Advance to the next step",
+    "reason": "Phase 1 of 11 · 0% · executing"
+  },
+  "updated_at": "2026-08-30T22:46:01.231Z"
+}
