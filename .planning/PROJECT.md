@@ -146,8 +146,8 @@ scaffolding is built for them.
 | Goods modelled as a data table with a recipe | Phase 2 adds a second good; a one-variant enum would have to be torn out | — Pending |
 | Ownership modelled as a relation | Later a firm will own another firm | — Pending |
 | Provenance recorded from the first tick | Retroactive provenance never covers early history | — Pending |
-| Wages contracted at hire, not floating to the firm's current offer | Matches Lengnick; implied by separate `Household.wage` and `Firm.offered_wage` fields | — Pending |
-| Household spending: Lengnick's wealth-dependent fraction of cash | Brief specifies the shape but not the parameters; prefer published approach | — Pending |
+| Wages contracted at hire, not floating to the firm's current offer | Follows BAM, **not** Lengnick — Lengnick's wages float and its household has no wage field at all. Retained because the brief's separate `Household.wage` and `Firm.offered_wage` fields require a contracted wage | — Pending |
+| Household spending: Lengnick's `(m/P̄)^α` with α = 0.9, `P̄` over the household's own supplier list | Recovered from reference implementation; brief specified the shape but not the parameters | — Pending |
 | Reservation wage rise rate while employed set from Lengnick | Brief's parameter table gives only the decay rate | — Pending |
 | Initial ownership: 20 of 200 households hold one firm each | Simplest assignment consistent with "every firm owned by exactly one household" | — Pending |
 | Bankruptcy respawn redraws when the sampled owner cannot fund a firm | Brief does not specify the edge case; redraw keeps firm count stable | — Pending |
