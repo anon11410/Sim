@@ -165,17 +165,133 @@ Deferred. These are the brief's section 10 roadmap, tracked as future milestones
 
 ## Traceability
 
-Populated during roadmap creation. Each v1 requirement maps to exactly one phase.
+Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no duplicates.
+
+**Phase names:**
+
+| Phase | Name |
+|-------|------|
+| Phase 1 | Primitives and the Determinism Spine |
+| Phase 2 | Books, Journal and Invariants |
+| Phase 3 | World, Tick Pipeline and Log Seam |
+| Phase 4 | Python Acceptance Harness Skeleton |
+| Phase 5 | Goods, Recipes and Production |
+| Phase 6 | Labour Market, Wages and Reservation Wages |
+| Phase 7 | Goods Market and Consumption |
+| Phase 8 | Ownership, Accounting and Dividends |
+| Phase 9 | Firm Planning |
+| Phase 10 | Bankruptcy and Respawn |
+| Phase 11 | Calibration, Burn-in and Full Acceptance |
+
+**Requirement mapping:**
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (pending roadmap) | — | Pending |
+| CORE-01 | Phase 1 | Pending |
+| CORE-02 | Phase 1 | Pending |
+| CORE-03 | Phase 1 | Pending |
+| CORE-04 | Phase 1 | Pending |
+| CORE-05 | Phase 1 | Pending |
+| CORE-06 | Phase 1 | Pending |
+| CORE-07 | Phase 1 | Pending |
+| CORE-08 | Phase 1 | Pending |
+| CORE-09 | Phase 1 | Pending |
+| CORE-10 | Phase 1 | Pending |
+| CORE-11 | Phase 1 | Pending |
+| LEDG-01 | Phase 2 | Pending |
+| LEDG-02 | Phase 2 | Pending |
+| LEDG-03 | Phase 2 | Pending |
+| LEDG-04 | Phase 2 | Pending |
+| LEDG-05 | Phase 2 | Pending |
+| LEDG-06 | Phase 2 | Pending |
+| LEDG-07 | Phase 2 | Pending |
+| LEDG-08 | Phase 2 | Pending |
+| LEDG-09 | Phase 2 | Pending |
+| LEDG-10 | Phase 2 | Pending |
+| TICK-01 | Phase 3 | Pending |
+| TICK-02 | Phase 3 | Pending |
+| TICK-03 | Phase 3 | Pending |
+| TICK-04 | Phase 3 | Pending |
+| TICK-05 | Phase 3 | Pending |
+| TICK-06 | Phase 3 | Pending |
+| TICK-07 | Phase 3 | Pending |
+| TICK-08 | Phase 3 | Pending |
+| TICK-09 | Phase 3 | Pending |
+| TICK-10 | Phase 3 | Pending |
+| HARN-01 | Phase 4 | Pending |
+| HARN-02 | Phase 4 | Pending |
+| HARN-03 | Phase 11 | Pending |
+| HARN-04 | Phase 9 | Pending |
+| HARN-05 | Phase 9 | Pending |
+| HARN-06 | Phase 10 | Pending |
+| HARN-07 | Phase 4 | Pending |
+| HARN-08 | Phase 11 | Pending |
+| PROD-01 | Phase 5 | Pending |
+| PROD-02 | Phase 5 | Pending |
+| PROD-03 | Phase 5 | Pending |
+| LABR-01 | Phase 6 | Pending |
+| LABR-02 | Phase 6 | Pending |
+| LABR-03 | Phase 6 | Pending |
+| LABR-04 | Phase 6 | Pending |
+| LABR-05 | Phase 6 | Pending |
+| LABR-06 | Phase 6 | Pending |
+| LABR-07 | Phase 6 | Pending |
+| LABR-08 | Phase 6 | Pending |
+| LABR-09 | Phase 6 | Pending |
+| MKT-01 | Phase 7 | Pending |
+| MKT-02 | Phase 7 | Pending |
+| MKT-03 | Phase 7 | Pending |
+| MKT-04 | Phase 7 | Pending |
+| MKT-05 | Phase 7 | Pending |
+| MKT-06 | Phase 7 | Pending |
+| OWN-01 | Phase 8 | Pending |
+| OWN-02 | Phase 8 | Pending |
+| OWN-03 | Phase 8 | Pending |
+| OWN-04 | Phase 8 | Pending |
+| OWN-05 | Phase 8 | Pending |
+| OWN-06 | Phase 8 | Pending |
+| OWN-07 | Phase 8 | Pending |
+| PLAN-01 | Phase 9 | Pending |
+| PLAN-02 | Phase 9 | Pending |
+| PLAN-03 | Phase 9 | Pending |
+| PLAN-04 | Phase 9 | Pending |
+| PLAN-05 | Phase 9 | Pending |
+| PLAN-06 | Phase 9 | Pending |
+| PLAN-07 | Phase 9 | Pending |
+| PLAN-08 | Phase 9 | Pending |
+| PLAN-09 | Phase 9 | Pending |
+| PLAN-10 | Phase 9 | Pending |
+| BANK-01 | Phase 10 | Pending |
+| BANK-02 | Phase 10 | Pending |
+| BANK-03 | Phase 10 | Pending |
+| BANK-04 | Phase 10 | Pending |
+| BANK-05 | Phase 10 | Pending |
+| BANK-06 | Phase 10 | Pending |
+| BANK-07 | Phase 10 | Pending |
+| CAL-01 | Phase 11 | Pending |
+| CAL-02 | Phase 11 | Pending |
+| CAL-03 | Phase 11 | Pending |
+| CAL-04 | Phase 11 | Pending |
+| CAL-05 | Phase 11 | Pending |
+| CAL-06 | Phase 11 | Pending |
+
+**Cross-category placements** (requirement placed outside the phase its ID prefix suggests):
+
+| Requirement | Phase | Reason |
+|-------------|-------|--------|
+| HARN-03 | Phase 11 | Excluding bankruptcy churn from the unemployment-band variance needs the churn introduced in Phase 10; the band itself is a section-7 acceptance criterion. |
+| HARN-04 | Phase 9 | Price stability, `fraction_at_floor` and price CV *are* Phase 9's gate — without them the price-rule check is an eyeballed chart. |
+| HARN-05 | Phase 9 | Output autocorrelation and the planning-cadence artefact spike *are* Phase 9's gate. |
+| HARN-06 | Phase 10 | Phase 10 is the first point at which the firm-size distribution's generating process is complete (goods market plus entrant sizing). |
+| HARN-08 | Phase 11 | Burn-in sensitivity at 2x and 4x is inseparable from CAL-03. |
+
+These follow the research constraint that the harness grows alongside the sim so every phase gate is an automated check. HARN-01, HARN-02 and HARN-07 remain in Phase 4, being the seam and counter-checks buildable against the pre-economics empty run.
 
 **Coverage:**
 - v1 requirements: 87 total
-- Mapped to phases: 0
-- Unmapped: 87 (pending roadmap)
+- Mapped to phases: 87
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-08-30*
-*Last updated: 2026-08-30 after initial definition*
+*Last updated: 2026-08-30 after roadmap creation — traceability populated, 87/87 mapped*
