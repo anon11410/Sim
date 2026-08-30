@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Primitives and the Determinism Spine
 status: executing
-stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-08-30T23:18:26.251Z"
+stopped_at: Completed 01-03-PLAN.md
+last_updated: "2026-08-30T23:28:27.364Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 01 execution started
-state_head: 5c6649542756dc786056113176f3b7c0b2c4ab46
+state_head: fc6542dc9de1d9da9b9a3053faad1cbbb3f93a29
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 8
-  completed_plans: 2
+  completed_plans: 3
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 01 (Primitives and the Determinism Spine) — EXECUTING
-Plan: 3 of 8
+Plan: 4 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 01 execution started
 
@@ -60,6 +60,7 @@ Progress: [░░░░░░░░░░] 0%
 |------|----------|-------|-------|
 | Phase 01 P01 | 11 min | 3 tasks | 12 files |
 | Phase 01 P02 | 4 min | 4 tasks | 3 files |
+| Phase 01 P03 | 5 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,10 @@ Recent decisions affecting current work:
 - [Phase 01]: CORE-03 restated as two clauses: absence applies only to StdRng/SysRng (what the rand 0.10.2 feature set genuinely removes); SmallRng/Xoshiro are banned by USE via clippy disallowed-types plus a source grep, because absence is unachievable without forking rand
 - [Phase 01]: CORE-11 clause (b), the Lengnick paper verification, is gated on Phase 6 per D-19 and added as Phase 6 criterion 6; CORE-11 stays mapped to Phase 1 to preserve the one-requirement-one-phase invariant. Deferred, not dropped.
 - [Phase 01]: CORE-10 scope narrowed to simulation/economic parameters; POW_FRAC_BITS, PPM_SCALE and MILLI_SCALE stay consts in src/numeric.rs with a GRADE: PROJECT entry in config/PROVENANCE.md, so a numerical-method constant is never tunable as an economics parameter
+- [Phase 01]: Money uses a split overflow API (D-07): the operators panic in every build profile because each routes through an i64::checked_* primitive, while the named checked_add/checked_sub/try_scale return Result<Money, MoneyOverflow> for config ingestion. Both halves ship; neither substitutes for the other.
+- [Phase 01]: Money::split distributes the remainder to the first |amount mod n| recipients by ascending index, on both signs, and panics on n == 0 rather than returning an empty vector. Phase 2 LEDG-03 and Phase 8 OWN-06 are written against this rule; changing it later would alter every committed run trajectory.
+- [Phase 01]: try_scale multiplies before dividing so the ratio keeps full precision in the integer domain with no intermediate rounding and no float; it truncates toward zero on both signs and reports a zero denominator as Err.
+- [Phase 01]: The plain-+ mutation cannot prove the D-07 operator half under this repo profile: with [profile.release] overflow-checks = true a bare + still panics with a message containing "overflow". Only a truly unchecked operation (wrapping_add) distinguishes the two belts, which is precisely why the .expect on checked_* is not redundant with CORE-02.
 
 ### Pending Todos
 
@@ -112,6 +117,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-30T23:18:05.328Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-08-30T23:28:14.724Z
+Stopped at: Completed 01-03-PLAN.md
 Resume file: None

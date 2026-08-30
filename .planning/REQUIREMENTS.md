@@ -9,7 +9,7 @@
 
 ### Core Primitives and Determinism
 
-- [ ] **CORE-01**: All monetary values use a `Money` newtype over `i64` minor units (cents) with checked arithmetic that panics on overflow regardless of build profile
+- [x] **CORE-01**: All monetary values use a `Money` newtype over `i64` minor units (cents) with checked arithmetic that panics on overflow regardless of build profile
 - [x] **CORE-02**: `[profile.release]` sets `overflow-checks = true` (Cargo defaults it off)
 - [ ] **CORE-03**: All randomness derives from one master seed via `ChaCha8Rng`, and: **(a)** `StdRng` and `SysRng` are absent from the dependency graph — enforced by the `default-features = false, features = ["std", "chacha"]` feature set on `rand` 0.10.2, and verified by the fact that referencing either does not compile; **(b)** `SmallRng`, the Xoshiro generators and any other non-portable generator are never *used* — enforced by `clippy.toml` `disallowed-types` entries plus a source grep test
   - *Rationale (amended 2026-08-30; authority: `01-CONTEXT.md` D-17).* The original wording required `StdRng` **and** `SmallRng` to be absent from the dependency graph. `rand` 0.10.2 makes `SmallRng` unconditional — `rngs/mod.rs:97-108` re-exports it and the Xoshiro generators with no `cfg` guard — while feature-gating only `StdRng`, behind `#[cfg(feature = "std_rng")]`. This was verified from crate source and by compiling on `rustc 1.94.1` (`01-RESEARCH.md` Pitfall 1): `StdRng` and `rand::rng()` fail to resolve under our feature set, while `SmallRng` still compiles. Absence from the graph is unachievable for `SmallRng` without forking `rand`, so without this amendment the Phase 1 gate reads as failed permanently. Clause (b) bans *use*, which is what the gate was always for — this is a restatement, not a loosening.
@@ -190,7 +190,7 @@ Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no dup
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| CORE-01 | Phase 1 | Pending |
+| CORE-01 | Phase 1 | Complete |
 | CORE-02 | Phase 1 | Complete |
 | CORE-03 | Phase 1 | Pending |
 | CORE-04 | Phase 1 | Pending |
