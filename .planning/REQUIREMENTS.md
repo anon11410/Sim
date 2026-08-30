@@ -10,14 +10,14 @@
 ### Core Primitives and Determinism
 
 - [ ] **CORE-01**: All monetary values use a `Money` newtype over `i64` minor units (cents) with checked arithmetic that panics on overflow regardless of build profile
-- [ ] **CORE-02**: `[profile.release]` sets `overflow-checks = true` (Cargo defaults it off)
+- [x] **CORE-02**: `[profile.release]` sets `overflow-checks = true` (Cargo defaults it off)
 - [ ] **CORE-03**: All randomness derives from one master seed via `ChaCha8Rng`; `StdRng` and `SmallRng` are absent from the dependency graph
 - [ ] **CORE-04**: RNG draws are namespaced into per-purpose sub-streams keyed on `(master_seed, tick, agent_id, purpose)`, so changing the draw count in one market cannot perturb another
 - [ ] **CORE-05**: Sampling uses fixed-draw algorithms (partial Fisher-Yates), never rejection sampling
 - [ ] **CORE-06**: Firm identity is generational (`FirmId { slot, gen }`) and accessors return `Option`, so a stale ID after respawn is a typed miss rather than a silent hit on a different firm
 - [ ] **CORE-07**: `clippy.toml` bans `HashMap`/`HashSet` on behaviour paths and the 31 non-deterministic `f64` methods, enforced in CI
-- [ ] **CORE-08**: Crate is `lib.rs` plus a thin `main.rs` so integration tests can reach all code
-- [ ] **CORE-09**: `Cargo.lock` and `rust-toolchain.toml` are committed; no `rayon` dependency and no `-C target-cpu=native`
+- [x] **CORE-08**: Crate is `lib.rs` plus a thin `main.rs` so integration tests can reach all code
+- [x] **CORE-09**: `Cargo.lock` and `rust-toolchain.toml` are committed; no `rayon` dependency and no `-C target-cpu=native`
 - [ ] **CORE-10**: Every simulation parameter loads from a TOML config with `deny_unknown_fields` and no serde defaults (a serde default is a hidden hardcoded parameter)
 - [ ] **CORE-11**: Lengnick Table 1 values are verified against the published paper, and every config value is annotated with its source grade (A/B/C/PROJECT)
 
@@ -188,14 +188,14 @@ Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no dup
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | CORE-01 | Phase 1 | Pending |
-| CORE-02 | Phase 1 | Pending |
+| CORE-02 | Phase 1 | Complete |
 | CORE-03 | Phase 1 | Pending |
 | CORE-04 | Phase 1 | Pending |
 | CORE-05 | Phase 1 | Pending |
 | CORE-06 | Phase 1 | Pending |
 | CORE-07 | Phase 1 | Pending |
-| CORE-08 | Phase 1 | Pending |
-| CORE-09 | Phase 1 | Pending |
+| CORE-08 | Phase 1 | Complete |
+| CORE-09 | Phase 1 | Complete |
 | CORE-10 | Phase 1 | Pending |
 | CORE-11 | Phase 1 | Pending |
 | LEDG-01 | Phase 2 | Pending |
@@ -288,6 +288,7 @@ Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no dup
 These follow the research constraint that the harness grows alongside the sim so every phase gate is an automated check. HARN-01, HARN-02 and HARN-07 remain in Phase 4, being the seam and counter-checks buildable against the pre-economics empty run.
 
 **Coverage:**
+
 - v1 requirements: 87 total
 - Mapped to phases: 87
 - Unmapped: 0

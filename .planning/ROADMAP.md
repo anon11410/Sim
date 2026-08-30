@@ -60,11 +60,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. `cargo clippy` **fails the build** when code introduces a `HashMap`/`HashSet` on a behaviour path or calls one of the 31 non-deterministic `f64` methods; `Cargo.toml` contains no `rayon` and `rust-toolchain.toml` and `Cargo.lock` are committed.
   5. Every config value carries a source-grade annotation (A/B/C/PROJECT), and the Lengnick Table 1 values are checked against the published paper with any discrepancy recorded rather than silently adopted.
 
-**Plans**: 8 plans in 4 waves
+**Plans**: 1/8 plans executed in 4 waves
 Plans:
 **Wave 1**
 
-- [ ] 01-01-PLAN.md — Tracer: the crate spine end to end (config → hash → effective seed → sub-stream draw → Money), plus the committed toolchain pin, lockfile and release overflow check
+- [x] 01-01-PLAN.md — Tracer: the crate spine end to end (config → hash → effective seed → sub-stream draw → Money), plus the committed toolchain pin, lockfile and release overflow check
 - [ ] 01-02-PLAN.md — Amend CORE-03 into two testable clauses, scope CORE-10, split CORE-11 and Phase 1 criterion 5 so the paper-verification clause is visibly gated on Phase 6 rather than silently graded here, and correct the rand 0.10 small-RNG claim in CLAUDE.md
 
 **Wave 2** *(blocked on Wave 1 completion)*
@@ -245,7 +245,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Primitives and the Determinism Spine | 0/TBD | Not started | - |
+| 1. Primitives and the Determinism Spine | 1/8 | In Progress|  |
 | 2. Books, Journal and Invariants | 0/TBD | Not started | - |
 | 3. World, Tick Pipeline and Log Seam | 0/TBD | Not started | - |
 | 4. Python Acceptance Harness Skeleton | 0/TBD | Not started | - |
