@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Primitives and the Determinism Spine
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-08-30T23:09:45.717Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-08-30T23:18:26.251Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 01 execution started
-state_head: 7626f95b641fbcb09e003d0d54fb2073d4d3fe1f
+state_head: 5c6649542756dc786056113176f3b7c0b2c4ab46
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 8
-  completed_plans: 1
+  completed_plans: 2
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 01 (Primitives and the Determinism Spine) — EXECUTING
-Plan: 2 of 8
+Plan: 3 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 01 execution started
 
@@ -59,6 +59,7 @@ Progress: [░░░░░░░░░░] 0%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 11 min | 3 tasks | 12 files |
+| Phase 01 P02 | 4 min | 4 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -72,6 +73,9 @@ Recent decisions affecting current work:
 - [Roadmap]: Dividends ship with firm accounting in Phase 8, never split — the only cycle-closing flow in a bankless economy.
 - [Roadmap]: Tick order is not build order — firm planning runs first in the tick, built ninth.
 - [Roadmap]: 5 of 8 HARN requirements moved out of Phase 4 to the phases whose gates they convert into automated checks (9, 10, 11).
+- [Phase 01]: CORE-03 restated as two clauses: absence applies only to StdRng/SysRng (what the rand 0.10.2 feature set genuinely removes); SmallRng/Xoshiro are banned by USE via clippy disallowed-types plus a source grep, because absence is unachievable without forking rand
+- [Phase 01]: CORE-11 clause (b), the Lengnick paper verification, is gated on Phase 6 per D-19 and added as Phase 6 criterion 6; CORE-11 stays mapped to Phase 1 to preserve the one-requirement-one-phase invariant. Deferred, not dropped.
+- [Phase 01]: CORE-10 scope narrowed to simulation/economic parameters; POW_FRAC_BITS, PPM_SCALE and MILLI_SCALE stay consts in src/numeric.rs with a GRADE: PROJECT entry in config/PROVENANCE.md, so a numerical-method constant is never tunable as an economics parameter
 
 ### Pending Todos
 
@@ -108,6 +112,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-30T23:09:45.685Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-08-30T23:18:05.328Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
