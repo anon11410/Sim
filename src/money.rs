@@ -294,3 +294,66 @@ mod tests {
         assert!(Money::from_cents(i64::MIN) < Money::from_cents(i64::MAX));
     }
 }
+
+/// Named `split_tests` rather than nested under `tests` so that the plan's
+/// verification command `cargo test --lib money::split` selects exactly this
+/// module: cargo's filter is a substring match on the full test path.
+#[cfg(test)]
+mod split_tests {
+    use super::Money;
+
+    /// The parts of a split, in cents, in order.
+    fn parts(amount: i64, n: u32) -> Vec<i64> {
+        Money::from_cents(amount)
+            .split(n)
+            .into_iter()
+            .map(Money::cents)
+            .collect()
+    }
+
+    #[test]
+    fn the_remainder_goes_to_the_first_recipients_by_ascending_index() {
+        // 1000 % 3 == 1, so exactly one recipient — the first — is bumped.
+        assert_eq!(parts(1_000, 3), vec![334, 333, 333]);
+    }
+
+    #[test]
+    fn an_evenly_dividing_amount_bumps_nobody() {
+        assert_eq!(parts(1_000, 4), vec![250, 250, 250, 250]);
+    }
+
+    #[test]
+    fn the_rule_holds_when_the_amount_is_smaller_than_the_recipient_count() {
+        assert_eq!(parts(2, 5), vec![1, 1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_single_recipient_receives_the_whole_amount() {
+        assert_eq!(parts(7, 1), vec![7]);
+    }
+
+    #[test]
+    fn splitting_zero_yields_zeros() {
+        assert_eq!(parts(0, 4), vec![0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_negative_amount_sums_back_exactly() {
+        let p = parts(-1_000, 3);
+        assert_eq!(p.iter().sum::<i64>(), -1_000);
+        assert_eq!(p, vec![-334, -333, -333]);
+    }
+
+    #[test]
+    #[should_panic(expected = "recipient count of zero")]
+    fn a_zero_recipient_count_panics_rather_than_destroying_the_amount() {
+        let _ = Money::from_cents(1_000).split(0);
+    }
+
+    #[test]
+    fn repeated_calls_return_equal_vectors() {
+        let first = Money::from_cents(1_000).split(3);
+        let second = Money::from_cents(1_000).split(3);
+        assert_eq!(first, second);
+    }
+}
