@@ -206,8 +206,12 @@ impl Rngs {
 /// this file so that a grep for a call site cannot return a false positive.
 /// Research verified from the vendored 0.10.2 source that the first can consume
 /// a second word, the second is an unbounded loop, and the third dispatches
-/// between three algorithms on `f32` thresholds the crate documents as
-/// performance tuning rather than contract. See 01-RESEARCH.md Pattern 2.
+/// between three algorithms on single-precision thresholds the crate documents
+/// as performance tuning rather than contract. See 01-RESEARCH.md Pattern 2.
+/// (That threshold type is named in prose rather than spelled, for the same
+/// reason as the sampler identifiers above: `src/numeric.rs` is the only module
+/// permitted to name a floating-point type, and `tests/numeric_det.rs` asserts
+/// it by reading every file under `src/`.)
 pub struct Stream(ChaCha8Rng, u32);
 
 impl Stream {
