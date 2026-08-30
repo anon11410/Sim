@@ -107,3 +107,35 @@ fn different_seed_changes_the_draw() {
         "the draw did not change with the seed — the RNG may be constant",
     );
 }
+
+// ---------------------------------------------------------------------------
+// CORE-02 / D-10: the release profile cannot silently wrap.
+//
+// `Money`'s operators route through `checked_add` and so panic regardless of
+// profile — but every raw `i64` on the behaviour path (goods units, headcounts,
+// tick counters) is unprotected without `[profile.release] overflow-checks`.
+// A default release build was verified to wrap `i64::MAX - 1 + 6` silently.
+//
+// These two cases are the pair. The panicking one fails if anyone deletes the
+// setting; the adjacent non-panicking one is what distinguishes "overflow
+// detection works" from "all addition panics".
+//
+// Both operands go through `std::hint::black_box` so the expression is not
+// const-evaluated: without it rustc rejects the overflow at compile time and
+// the runtime check is never exercised.
+// ---------------------------------------------------------------------------
+
+#[test]
+#[should_panic(expected = "overflow")]
+fn raw_i64_overflow_panics_in_release() {
+    let lhs = std::hint::black_box(i64::MAX - 1);
+    let rhs = std::hint::black_box(2i64);
+    let _ = std::hint::black_box(lhs + rhs);
+}
+
+#[test]
+fn raw_i64_at_the_maximum_does_not_panic() {
+    let lhs = std::hint::black_box(i64::MAX - 1);
+    let rhs = std::hint::black_box(1i64);
+    assert_eq!(lhs + rhs, i64::MAX, "one step below the edge must not panic");
+}
