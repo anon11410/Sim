@@ -201,11 +201,13 @@ impl Rngs {
 /// its exact draw count, and every one of them is fixed-draw — no rejection
 /// loop and no unbounded loop anywhere on the behaviour path (CORE-05, D-05).
 ///
-/// `rand`'s own `random_range`, `Uniform::sample` and `seq::index::sample` are
-/// deliberately never called: research verified from the vendored 0.10.2 source
-/// that the first can consume a second word, the second is an unbounded loop,
-/// and the third dispatches between three algorithms on `f32` thresholds the
-/// crate documents as performance tuning rather than contract.
+/// `rand`'s own range sampler, its uniform-distribution sampler and its index
+/// sampler are deliberately never called, and their identifiers are kept out of
+/// this file so that a grep for a call site cannot return a false positive.
+/// Research verified from the vendored 0.10.2 source that the first can consume
+/// a second word, the second is an unbounded loop, and the third dispatches
+/// between three algorithms on `f32` thresholds the crate documents as
+/// performance tuning rather than contract. See 01-RESEARCH.md Pattern 2.
 pub struct Stream(ChaCha8Rng, u32);
 
 impl Stream {
