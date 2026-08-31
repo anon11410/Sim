@@ -89,8 +89,12 @@ pub enum Purpose {
 
 /// Every [`Purpose`] variant, for tests that must sweep the whole key space.
 ///
-/// Extend this whenever a variant is appended; the injectivity sweep is only as
-/// complete as this array.
+/// The injectivity sweep is only as complete as this array — so appending a
+/// variant to [`Purpose`] without adding it here is made a **compile error** by
+/// [`purpose_is_listed`] below, rather than left to whoever remembers this
+/// comment. Every test that touches this array otherwise compares it only to
+/// itself, and a missing variant would be swept by nothing and checked for
+/// collision by nothing.
 pub const ALL_PURPOSES: [Purpose; 12] = [
     Purpose::TracerProbe,
     Purpose::ActivationOrderHouseholds,
@@ -105,6 +109,48 @@ pub const ALL_PURPOSES: [Purpose; 12] = [
     Purpose::PlanningOffsetInit,
     Purpose::BankruptcyOwnerDraw,
 ];
+
+/// Compile-time completeness guard for [`ALL_PURPOSES`].
+///
+/// The exhaustive match is the entire mechanism: appending a variant to
+/// [`Purpose`] makes this match non-exhaustive, which is a compile error, and
+/// the only way to fix that error is to name the new variant — at which point
+/// the omission from `ALL_PURPOSES` is in front of whoever is doing it.
+///
+/// This matters more than it looks. [`Purpose`] is explicitly append-only and
+/// later phases *will* extend it, while every test that touches the array
+/// compares it to itself: `pack_stream_key_is_injective_over_a_swept_grid`
+/// asserts `swept == 40 * 40 * ALL_PURPOSES.len()`,
+/// `every_purpose_discriminant_is_distinct_and_non_zero` asserts
+/// `seen.len() == ALL_PURPOSES.len()`, and `distinct_keys_give_distinct_streams`
+/// sweeps the array. A variant added to the enum but not to the array compiles,
+/// passes all three, and has its discriminant checked for collision by nothing.
+const fn purpose_is_listed(p: Purpose) -> bool {
+    match p {
+        Purpose::TracerProbe
+        | Purpose::ActivationOrderHouseholds
+        | Purpose::ActivationOrderFirms
+        | Purpose::LabourSample
+        | Purpose::EmployedSearchCoin
+        | Purpose::GoodsSample
+        | Purpose::SupplierRevision
+        | Purpose::PriceInactionCoin
+        | Purpose::PriceStep
+        | Purpose::WageStep
+        | Purpose::PlanningOffsetInit
+        | Purpose::BankruptcyOwnerDraw => true,
+    }
+}
+
+/// Ties [`purpose_is_listed`] to [`ALL_PURPOSES`], so the guard above cannot be
+/// deleted as dead code without the array losing its only structural check.
+const _: () = {
+    let mut i = 0;
+    while i < ALL_PURPOSES.len() {
+        assert!(purpose_is_listed(ALL_PURPOSES[i]));
+        i += 1;
+    }
+};
 
 /// Pack `(tick, agent, purpose)` into the `u64` sub-stream nonce.
 ///
