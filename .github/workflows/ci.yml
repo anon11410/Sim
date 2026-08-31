@@ -1,0 +1,72 @@
+# CI: the determinism gate, run unattended.
+#
+# This project's guarantee is that a given seed reproduces a given log byte for
+# byte. Every rule that protects it -- integer money, one seeded generator, no
+# hashed iteration, no unspecified-precision float method, one pinned compiler --
+# is only as real as the build that fails when it is broken. This workflow is
+# that build.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  gate:
+    name: Build, test in both profiles, and enforce the determinism bans
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # No Rust version literal appears anywhere in this file, deliberately.
+      # rust-toolchain.toml is the single home of the pin, and rustup installs
+      # what that file names on the first cargo invocation. Naming a version
+      # here as well would create a second home for it, and the two would drift
+      # -- at which point CI would be certifying a compiler the project does not
+      # use. The pin is load-bearing for determinism, not hygiene: codegen
+      # differences between compiler versions change the logs.
+      - name: Install the pinned toolchain
+        run: |
+          rustup show active-toolchain
+          rustup component add clippy rustfmt
+          rustc --version
+          cargo clippy --version
+          cargo fmt --version
+
+      # --locked makes a lockfile that no longer matches the manifest a CI
+      # failure rather than a silent regeneration. That is what makes the
+      # committed Cargo.lock part of the reproducibility contract instead of a
+      # snapshot: a patch release of rand may legally change a sampling
+      # algorithm, and silently accepting one would change every trajectory.
+      - name: Build
+        run: cargo build --locked
+
+      - name: Test (debug)
+        run: cargo test --locked --all-targets
+
+      # The release run is not redundant. Money's overflow behaviour and the
+      # release profile's overflow-checks setting are profile-dependent, so a
+      # debug-only run cannot see the wrapping bug CORE-02 exists to prevent.
+      - name: Test (release)
+        run: cargo test --locked --release --all-targets
+
+      # Both flags are load-bearing: without them clippy does not lint the test
+      # directory at all, and a determinism hazard introduced there passes green.
+      - name: Lint (the determinism bans)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Formatting
+        run: cargo fmt --check
+
+      - name: Guard — the reproducibility contract (CORE-09)
+        run: bash tests/toolchain.sh
+
+      # Not interchangeable with the clippy step above. That step asserts the
+      # tree is clean; this one asserts the lint would have caught it if it
+      # were not, by injecting a known hazard and watching the gate block it.
+      # Running only the first is the failure mode this phase exists to avoid:
+      # a lint never observed to block has never been shown to work.
+      - name: Guard — the lint gate actually blocks (CORE-07, CORE-03 clause (b))
+        run: bash tests/lints.sh
