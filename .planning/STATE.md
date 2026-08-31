@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 current_phase: 3
 current_phase_name: World, Tick Pipeline and Log Seam
-status: planning
-stopped_at: Phase 2 complete, ready to plan Phase 3
-last_updated: "2026-08-31T11:55:11.109Z"
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-08-31T14:21:05.577Z"
 last_activity: 2026-08-31
-last_activity_desc: Phase 2 complete, transitioned to Phase 3
-state_head: c39c29090fa16cb8d695aa7c8e7fa881aca4403f
+last_activity_desc: Executed plan 03-01 — criterion 3 amended, log seam dependencies landed
+state_head: 6e2a6644166cfd9c0ef3568f1ef8968b6ce70d1b
 progress:
   total_phases: 11
   completed_phases: 2
-  total_plans: 15
-  completed_plans: 15
+  total_plans: 21
+  completed_plans: 16
   percent: 18
 ---
 
@@ -23,22 +23,22 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-30)
 
 **Core value:** The daily tick loop must be provably correct and demonstrably alive — money conserved to the cent, runs byte-identically reproducible, and an economy that fluctuates rather than pinning or spiralling.
-**Current focus:** Phase 01 — Primitives and the Determinism Spine
+**Current focus:** Phase 03 — World, Tick Pipeline and Log Seam
 
 ## Current Position
 
 Phase: 3 — World, Tick Pipeline and Log Seam
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-31 — Phase 2 complete, transitioned to Phase 3
+Plan: 1 of 6 complete (03-01)
+Status: Executing — wave 1 done, 03-02 (tracer) next
+Last activity: 2026-08-31 — Executed plan 03-01
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██░░░░░░░░] 18%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 15
+- Total plans completed: 16
 - Average duration: —
 - Total execution time: —
 
@@ -67,6 +67,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P06 | 4min | 3 tasks | 3 files |
 | Phase 01 P08 | 26 min | 3 tasks | 3 files |
 | Phase 01 P07 | 18 min | 3 tasks | 8 files |
+| Phase 3 P1 | 5min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -106,6 +107,9 @@ Recent decisions affecting current work:
 - [Phase 01]: A negative test, not a lint's existence, is what satisfies CORE-07: tests/lints.sh injects a hazard into tests/ -- the directory plain cargo clippy is blind to -- watches both ban lists fire on it, drives a 58-call-site probe and compares diagnostics to call sites, asserts the four escape hatches absent, and restores the tree under a trap. Each ban list is asserted SEPARATELY, because a bare 'the build failed' assertion stays green after one list is deleted while the other hazard still fails the build. — Two holes were reproduced first-hand and both leave the naive invocation reporting a healthy exit 0 over a broken tree: a hazard in tests/ passes 'cargo clippy' (exit 0) and fails 'cargo clippy --all-targets --all-features' (exit 101); and a type alias to a hashed collection behind #[allow(clippy::disallowed_types)] leaves clippy at exit 0, completely blind, and is caught only by the grep in check 4a.
 - [Phase 01]: The disallowed-types exemption assertion is scoped to tracked *.rs files rather than the whole repository, because the attribute has effect only in Rust source and CLAUDE.md, 01-RESEARCH.md and 01-07-PLAN.md all quote it in prose or code examples. Matching those would be matching a description of the hole rather than the hole.
 - [Phase 01]: The phase's one deferred item is closed: src/money.rs and tests/tracer_end_to_end.rs are rustfmt-clean and 'cargo fmt --check' is now a CI step, so the item cannot silently re-open. The CI workflow names no Rust version literal -- rust-toolchain.toml stays the single home of the pin, since a second copy would drift and CI would then certify a compiler the project does not use.
+- [Phase 3]: ROADMAP Phase 3 criterion 3 amended: the vacuous-reproducibility counter-check is a seed-sensitive `activation_digest` column in `ticks.csv`, not the per-tick draw count, which was measured constant at 218 across seeds 42 and 43
+- [Phase 3]: REQUIREMENTS.md TICK-10 deliberately left unamended — it describes the finished simulation, whereas the criterion describes the mechanism a phase gate reads
+- [Phase 3]: Log seam crates: csv 1.4.0 + serde_json 1.0.151 (normal), assert_cmd 2.2.2 + tempfile 3.27.0 (dev-only, to keep getrandom off the behaviour path); schemars and insta rejected on measurement and asserted absent from Cargo.lock
 
 ### Pending Todos
 
@@ -144,6 +148,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T00:27:10.301Z
-Stopped at: Phase 2 complete, ready to plan Phase 3
+Last session: 2026-08-31T14:21:05.447Z
+Stopped at: Completed 03-01-PLAN.md
 Resume file: None

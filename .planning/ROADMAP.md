@@ -123,11 +123,11 @@ Plans:
   6. **The process-level half of Phase 2 criterion 2.** The built binary, run against the shipped configuration with `invariants.liveness_enabled` overridden to `true` against an economy that trades nothing, exits non-zero with a stderr line naming tick 0. Phase 2 can only prove the halt at the library level — a tick loop that aborts at the right tick — because the `const PHASES` table and the binary's tick loop are this phase's, so the process level belongs to neither phase unless it is written here. **This does not contradict criterion 1**: criterion 1 exercises the same binary with the **shipped** value `false`, which is why 3,650 empty ticks pass there, and this criterion overrides that one key and nothing else. Cheap by construction — the liveness violation is the one violation reachable through the public ledger API, so it needs no fault injection at all, and the pipeline it drives already exists by this point. Cross-references Phase 2 criterion 2.
   7. **The balance-field obligation inherited from Phase 2 criterion 1.** `Household` and `Firm` first exist in this phase, so this is the first phase that can verify the half of LEDG-01 that is a claim about them: they carry no balance field, expose no `set_cash`, and every cent they appear to hold is read through the ledger accessors. Guard 7f in `tests/lints.sh` is extended to name those two types in the same commit that introduces them, so the guard cannot lag the types it polices. Phase 2 can verify only the positive property about where a balance may be written, which is why this half is recorded against this phase rather than left inside a lint failure string. Cross-references Phase 2 criterion 1.
 
-**Plans**: 6 plans
+**Plans**: 1/6 plans executed
 
 Plans:
 
-- [ ] 03-01-PLAN.md — Amend criterion 3 to the counter-check that was measured to work, and add the log seam's four crates with the two rejected ones kept out of the lockfile
+- [x] 03-01-PLAN.md — Amend criterion 3 to the counter-check that was measured to work, and add the log seam's four crates with the two rejected ones kept out of the lockfile
 - [ ] 03-02-PLAN.md — TRACER: `World`, the fixed nine-phase `PHASES` table and the tick log, one decade of empty ticks from `--config` to a diffable `ticks.csv`, with guard `7f-agents` added in the same commit as `Household` and `Firm`
 - [ ] 03-03-PLAN.md — The event stream opened by the endowment, the provenance table with its eager header, and `run_meta.json` with the build-time compiler string
 - [ ] 03-04-PLAN.md — The schema generated from the writers rather than a second derive, committed, and its drift test proved to fire
@@ -273,7 +273,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 |-------|----------------|--------|-----------|
 | 1. Primitives and the Determinism Spine | 8/8 | Complete    | 2026-08-31 |
 | 2. Books, Journal and Invariants | 7/7 | Complete    | 2026-08-31 |
-| 3. World, Tick Pipeline and Log Seam | 0/6 | Not started | - |
+| 3. World, Tick Pipeline and Log Seam | 1/6 | In Progress|  |
 | 4. Python Acceptance Harness Skeleton | 0/TBD | Not started | - |
 | 5. Goods, Recipes and Production | 0/TBD | Not started | - |
 | 6. Labour Market, Wages and Reservation Wages | 0/TBD | Not started | - |
