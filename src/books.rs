@@ -1,5 +1,5 @@
 //! The books: the one place a cent exists, and the one place a cent moves
-//! (LEDG-01, LEDG-02, LEDG-03, LEDG-04, LEDG-07, LEDG-09).
+//! (LEDG-01, LEDG-02, LEDG-03, LEDG-04, LEDG-05, LEDG-07, LEDG-09).
 //!
 //! Every cent in the simulation is held by a [`Books`] value behind private
 //! fields, and the only way to move one is [`Books::transfer`]. No agent type
@@ -9,6 +9,31 @@
 //! this file.** Phase 3 inherits that obligation and must not add a balance
 //! field or a cash setter to an agent struct; the books already own the
 //! quantity.
+//!
+//! **The books own every goods unit on the same terms (LEDG-05).** Stock is
+//! held per *account*, addressed exactly as cash is, and the only ways to move
+//! a unit are [`Books::produce`], [`Books::consume`] and [`Books::exchange`].
+//! The identity is
+//!
+//! ```text
+//! produced − consumed − Σ_accounts stock == 0        for each good
+//! ```
+//!
+//! and it is a real check rather than a tautology only because its two sides
+//! come from two separately maintained sources. The `produced` and `consumed`
+//! totals are advanced from the **arguments** of the operations; the running
+//! goods residual is advanced from the **legs of the postings** those
+//! operations record. Deriving either from the other — recomputing `produced`
+//! by walking the journal at check time, say — would compare a number against
+//! itself and pass forever.
+//!
+//! **The identity has one shape under either Phase 7 consumption model.** If a
+//! purchased unit is consumed in the same tick, a household's stock returns to
+//! zero within the tick; if it is held, that stock is non-zero across a tick
+//! boundary. The only difference between the two worlds is whether a household
+//! stock slot happens to be non-zero at the moment the check runs. No formula,
+//! no field and no check differs, which is why Phase 7 (MKT-06) can settle the
+//! question without touching this file.
 //!
 //! **Atomicity (LEDG-02) has four legs, and an exclusive borrow is only one.**
 //!
@@ -59,22 +84,43 @@ use crate::money::{Money, MoneyOverflow};
 /// The good every posting in this phase names. One good ("food") in v1.
 const ONLY_GOOD: GoodId = GoodId(0);
 
+/// Every good these books carry.
+///
+/// Exactly one in v1. Phase 5 (PROD-01) widens this into a goods table with
+/// recipes; that is a change to the **dimension** of the containers below and
+/// not to the shape of the identity, and every accessor is already
+/// account-and-good-shaped, so no call site moves when it happens.
+static GOODS: [GoodId; 1] = [ONLY_GOOD];
+
 /// What a posting records.
 ///
-/// Plan 02-03 appends `Exchange`, `Produce` and `Consume`. New variants are
-/// **appended**, never inserted or reordered: the serialised form below is the
-/// wire shape Phase 3 writes into its event stream, and a renamed or reordered
-/// variant is a trajectory-visible change to a committed log rather than a
-/// refactor.
+/// New variants are **appended**, never inserted or reordered: the serialised
+/// form below is the wire shape Phase 3 writes into its event stream, and a
+/// renamed or reordered variant is a trajectory-visible change to a committed
+/// log rather than a refactor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PostingKind {
-    /// Opening endowment. Its counterparty is outside the books by definition,
-    /// so its debit leg carries no amount. Not a transaction: see
-    /// [`Books::transactions_this_tick`].
+    /// Opening endowment, of cash or of units. Its counterparty is outside the
+    /// books by definition, so its debit leg carries no amount. A units
+    /// endowment counts into the produced total — see [`Books::new`]. Not a
+    /// transaction: see [`Books::transactions_this_tick`].
     Endow,
     /// Cash moved from one account in these books to another.
     Transfer,
+    /// Cash moved one way and units the other, as a single posting. A
+    /// transaction, exactly as a [`PostingKind::Transfer`] is.
+    Exchange,
+    /// Units entered the system at an account. The one place a unit is created,
+    /// and therefore the one thing that advances the produced total. Not a
+    /// transaction: a tick in which firms only produced has traded nothing,
+    /// which is the degenerate state LEDG-08 exists to catch.
+    Produce,
+    /// Units left the system from an account. Recorded as a posting rather than
+    /// performed as a bare subtraction, so that a consumption defect is nameable
+    /// in the journal (LEDG-09) and consumption is an explicit modelled step
+    /// (MKT-06). Not a transaction, for the same reason production is not.
+    Consume,
 }
 
 /// One line of the journal: what moved, between whom, and what the running
@@ -89,8 +135,12 @@ pub enum PostingKind {
 /// posting. Collapsing them into one amount would make that check a tautology:
 /// an over-credit would be inexpressible and the check could never fire.
 ///
-/// **The units leg is two amounts for the same reason.** Both are zero for
-/// every posting this phase produces; plan 02-03 gives them values.
+/// **The units leg is two amounts for the same reason,** and it points the
+/// other way. Units move *opposite* to cash: the buyer is the debit account
+/// because it pays, and the units it receives left the credit account. LEDG-07
+/// is exactly the statement that the two legs name the same pair of accounts in
+/// opposite directions, and it is checkable on one posting only because each
+/// leg carries its own amount.
 ///
 /// **The two residual fields are the running residuals *after* this posting
 /// applied.** That is what turns localisation into a scan over
@@ -116,9 +166,14 @@ pub struct Posting {
     pub credit_cents: i64,
     #[serde(serialize_with = "serialize_good")]
     pub good: GoodId,
-    /// Units that left `debit`.
+    /// Units that left the account they left: the **credit** account for a
+    /// [`PostingKind::Exchange`] (the seller), and the single account named on
+    /// both legs for a [`PostingKind::Consume`].
     pub units_out: i64,
-    /// Units that arrived at `credit`.
+    /// Units that arrived where they arrived: the **debit** account for a
+    /// [`PostingKind::Exchange`] (the buyer), and the single account named on
+    /// both legs for a [`PostingKind::Produce`] or a units
+    /// [`PostingKind::Endow`].
     pub units_in: i64,
     /// The books' cash residual after this posting: cents posted so far, less
     /// the opening stock. Zero when the run conserves.
@@ -148,6 +203,9 @@ impl std::fmt::Display for Posting {
         let kind = match self.kind {
             PostingKind::Endow => "endow",
             PostingKind::Transfer => "transfer",
+            PostingKind::Exchange => "exchange",
+            PostingKind::Produce => "produce",
+            PostingKind::Consume => "consume",
         };
         write!(
             f,
@@ -204,6 +262,33 @@ pub enum PostError {
     /// the money API, which is what keeps the commit step infallible.
     #[error("the transfer does not fit in the money range: {0}")]
     Range(#[from] MoneyOverflow),
+
+    /// The account holds fewer units of the good than the operation asked for.
+    /// The goods counterpart of an overdraft, and an economic event in exactly
+    /// the same way: a firm that has sold out is not a defect.
+    #[error(
+        "{account} cannot release {units_requested} units of {good}: it holds \
+         {units_held}"
+    )]
+    ShortStock {
+        account: Account,
+        good: GoodId,
+        units_requested: i64,
+        units_held: i64,
+    },
+
+    /// The identifier names no good these books carry. Refused rather than
+    /// indexed: a good outside the table has no stock vector, and reading one
+    /// as zero would let a caller "consume" from a good that does not exist.
+    #[error("{0} is not a good these books carry")]
+    UnknownGood(GoodId),
+
+    /// A negative unit count is refused rather than treated as a movement in
+    /// the opposite direction, for the same reason [`PostError::NegativeAmount`]
+    /// is: reversing the direction skips the stock check on the side that
+    /// actually gives up the units, so units would be created from nothing.
+    #[error("{units} units is not a quantity that can be moved")]
+    NegativeUnits { units: i64 },
 }
 
 /// The books could not be constructed from these parameters.
@@ -224,25 +309,59 @@ pub enum BooksError {
         endowed_cents: i64,
         opening_cents: i64,
     },
+
+    /// The configured initial inventory is not a quantity a firm can hold:
+    /// negative, or so large that endowing every slot leaves the total outside
+    /// the integer range.
+    ///
+    /// The configuration layer bounds the money stock but not this key, and a
+    /// negative endowment would open the books with negative inventory while
+    /// the identity still balanced — negative `produced` against negative
+    /// stock. The identity cannot catch it, so the constructor refuses it,
+    /// which is the same boundary at which [`PostError::NegativeUnits`] refuses
+    /// one.
+    #[error(
+        "an initial inventory of {units_per_firm} units across {firms} firm slots \
+         is not a quantity these books can hold"
+    )]
+    InitialInventoryOutOfRange { units_per_firm: i64, firms: u16 },
+
+    /// The goods identity does not hold once construction has endowed every
+    /// firm slot, so the books would begin the run already failing goods
+    /// conservation.
+    #[error(
+        "the initial inventory endows {endowed_units} units but the goods identity \
+         is off by {residual_units} units; the books would begin the run already \
+         broken"
+    )]
+    InventoryDoesNotBalance {
+        endowed_units: i64,
+        residual_units: i64,
+    },
 }
 
-/// Where a resolved account's balance lives.
+/// Where a resolved account's quantities live — its cash and its stock, which
+/// are indexed identically.
 ///
-/// Private, and the only way to reach a balance vector index. Constructing one
-/// requires passing [`Books::resolve`], which is what bounds-checks the index
-/// and compares a firm's generation.
+/// Private, and the only way to reach a balance or a stock vector index.
+/// Constructing one requires passing [`Books::resolve`], which is what
+/// bounds-checks the index and compares a firm's generation. That one
+/// resolution serving both quantities is what keeps a firm's inventory keyed on
+/// the same slot as its cash, so a Phase 10 respawn cannot carry one forward
+/// and orphan the other (T-02-16).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CashSlot {
+enum AccountSlot {
     Household(usize),
     Firm(usize),
 }
 
-/// Every cent in the simulation, plus this tick's journal.
+/// Every cent and every unit in the simulation, plus this tick's journal.
 ///
 /// All fields are private and there is exactly one constructor. No accessor
-/// returns a mutable reference to a balance or to a balance vector: that would
-/// hand a caller the mutation point [`Books::transfer`] exists to monopolise,
-/// and no search for a setter *name* would find a getter shaped that way.
+/// returns a mutable reference to a balance, a stock value or either vector:
+/// that would hand a caller the mutation point [`Books::transfer`] and the
+/// three goods operations exist to monopolise, and no search for a setter
+/// *name* would find a getter shaped that way.
 #[derive(Debug, Clone)]
 pub struct Books {
     /// The conservation baseline, set once in [`Books::new`] from the
@@ -264,6 +383,26 @@ pub struct Books {
     /// one, and it **must not** reset the slot's balance: conservation depends
     /// on that money carrying forward into the successor's hands.
     firm_generation: Vec<u32>,
+    /// Stock by household index, for the one good v1 carries. The same
+    /// two-vector shape as cash, and indexed by the same resolved
+    /// [`AccountSlot`], so a household's units and its cents cannot drift onto
+    /// different keys.
+    ///
+    /// Phase 5 (PROD-01) widens this to a `Vec` per good. That changes the
+    /// containers' dimension and nothing about the identity's shape.
+    household_stock: Vec<i64>,
+    /// Stock by firm **slot**, for the same reason [`Books::firm_cash`] is: a
+    /// slot outlives its occupant, and a Phase 10 respawn must carry the
+    /// inventory forward rather than orphan it.
+    firm_stock: Vec<i64>,
+    /// Units that have entered the system, ever. Advanced from the **argument**
+    /// of [`Books::produce`] and from the constructor's inventory endowment —
+    /// never from the journal. That independence from the running residual
+    /// below is the whole reason the goods check is not a tautology.
+    produced: i64,
+    /// Units that have left the system, ever. Advanced from the **argument** of
+    /// [`Books::consume`], on the same terms.
+    consumed: i64,
     /// This tick's postings. Cleared, not reallocated, by
     /// [`Books::end_of_tick`], so the capacity is reused.
     journal: Vec<Posting>,
@@ -272,8 +411,10 @@ pub struct Books {
     /// the recorder and never reset by [`Books::end_of_tick`] — it measures the
     /// whole run against its opening stock and is meaningful only cumulatively.
     cash_residual_cents: i64,
-    /// The goods identity's running residual, maintained the same way. Zero for
-    /// every posting this phase produces; plan 02-03 gives it values.
+    /// The goods identity's running residual, maintained the same way and from
+    /// the **legs of the postings** — the second, independent source the goods
+    /// check compares the recomputed identity against. Zero when the run
+    /// conserves, and never reset by [`Books::end_of_tick`].
     goods_residual_units: i64,
     transactions_this_tick: u32,
 }
@@ -290,13 +431,26 @@ impl Books {
     ///    firm slot the configured firm liquidity, each recorded as an
     ///    [`PostingKind::Endow`] posting whose credit leg carries the amount and
     ///    whose debit leg carries nothing: an endowment's counterparty is
-    ///    outside the books by definition.
-    /// 4. The running residual must have returned to zero. If it has not, the
-    ///    endowment does not sum to the stock and construction fails with both
-    ///    numbers. This is a construction-time check and is a *different* check
-    ///    from the per-tick one; both are needed.
+    ///    outside the books by definition. Every firm slot also receives the
+    ///    configured initial inventory, as a second endowment posting carrying
+    ///    the units arriving.
+    /// 4. The running residuals must have returned to zero — the cash one
+    ///    because the endowment must sum to the stock, the goods one because the
+    ///    inventory endowment must balance against the produced total it
+    ///    advances. If either has not, construction fails with both numbers.
+    ///    These are construction-time checks and are *different* checks from the
+    ///    per-tick ones; both are needed.
     /// 5. The journal is cleared and the sequence and transaction counters are
     ///    reset, so **tick 0 begins with an empty journal.**
+    ///
+    /// **The initial inventory is counted into `produced`, and that is
+    /// load-bearing.** The goods identity is `produced − consumed − Σstock`.
+    /// Endowing a firm's inventory raises `Σstock`, so without the matching
+    /// count into `produced` the identity fails on tick 0 by exactly the
+    /// endowment — the single most likely "it fails on tick 0 and nobody knows
+    /// why" defect in this phase. The money side says the same thing in its own
+    /// terms: `opening_stock` is set from the configured stock so that the cash
+    /// endowment nets to zero against it.
     ///
     /// Step 5 closes the subtlest trap in this phase. If the endowment postings
     /// survived into tick 0's journal, the liveness check (LEDG-08) could pass
@@ -333,11 +487,29 @@ impl Books {
             });
         };
 
+        // The configuration layer bounds the money stock but not the inventory
+        // key, so the bound is imposed here. A negative endowment would open the
+        // books with negative inventory and a *balanced* identity — negative
+        // `produced` against negative stock — so the identity cannot catch it
+        // and the refusal has to be at the boundary.
+        let units_per_firm = params.firm.initial_inventory_units;
+        let endowed_units = i64::from(firm_slots).checked_mul(units_per_firm);
+        let Some(endowed_units) = endowed_units.filter(|_| units_per_firm >= 0) else {
+            return Err(BooksError::InitialInventoryOutOfRange {
+                units_per_firm,
+                firms: firm_slots,
+            });
+        };
+
         let mut books = Books {
             opening_stock: Money::from_cents(opening_cents),
             household_cash: vec![Money::ZERO; households],
             firm_cash: vec![Money::ZERO; firms],
             firm_generation: vec![0; firms],
+            household_stock: vec![0; households],
+            firm_stock: vec![0; firms],
+            produced: 0,
+            consumed: 0,
             journal: Vec::new(),
             next_seq: 0,
             cash_residual_cents: residual_seed,
@@ -384,6 +556,25 @@ impl Books {
                 cash_residual_cents: 0,
                 goods_residual_units: 0,
             });
+
+            // The stock and the produced total move together, or the identity
+            // fails at tick 0 by exactly this endowment. The total for every
+            // slot fits, because `endowed_units` above was computed and checked.
+            books.firm_stock[index as usize] = units_per_firm;
+            books.produced += units_per_firm;
+            books.record(Posting {
+                seq: 0,
+                kind: PostingKind::Endow,
+                debit: account,
+                credit: account,
+                debit_cents: 0,
+                credit_cents: 0,
+                good: ONLY_GOOD,
+                units_out: 0,
+                units_in: units_per_firm,
+                cash_residual_cents: 0,
+                goods_residual_units: 0,
+            });
         }
 
         if books.cash_residual_cents != 0 {
@@ -394,6 +585,13 @@ impl Books {
             return Err(BooksError::EndowmentDoesNotSumToStock {
                 endowed_cents,
                 opening_cents,
+            });
+        }
+
+        if books.goods_residual_units != 0 {
+            return Err(BooksError::InventoryDoesNotBalance {
+                endowed_units,
+                residual_units: books.goods_residual_units,
             });
         }
 
@@ -474,6 +672,214 @@ impl Books {
         Ok(amount)
     }
 
+    /// Bring `units` of `good` into existence at `who`, returning the units
+    /// actually created.
+    ///
+    /// **The one place a unit enters the system.** That is what makes the
+    /// produced total a genuine second source rather than a restatement of the
+    /// stock vectors: this method advances the total from its own *argument*,
+    /// while the recorder advances the running residual from the *legs* of the
+    /// posting it records.
+    ///
+    /// Compute-then-commit, exactly as [`Books::transfer`] is: the good, the
+    /// sign of the count and the account are all settled before the first write,
+    /// and the commit step is two assignments and one call to the recorder.
+    ///
+    /// Not a transaction. A tick in which firms only produced has traded
+    /// nothing, and that is precisely the degenerate state LEDG-08 exists to
+    /// catch.
+    pub fn produce(&mut self, who: Account, good: GoodId, units: i64) -> Result<i64, PostError> {
+        // --- compute: every fallible step, before any write -----------------
+        if units < 0 {
+            return Err(PostError::NegativeUnits { units });
+        }
+        if !Books::carries(good) {
+            return Err(PostError::UnknownGood(good));
+        }
+        let slot = self.resolve(who).ok_or(PostError::UnknownAccount(who))?;
+
+        // Bare integer arithmetic, deliberately. Unit counts are not `Money`
+        // and have no non-panicking half to route through; both build profiles
+        // enable overflow checks, so a count that cannot be represented aborts
+        // here — before any write — rather than wrapping into a plausible
+        // negative inventory (T-02-17).
+        let stock_after = self.stock_at(slot) + units;
+        let produced_after = self.produced + units;
+
+        // --- commit: assignments only ---------------------------------------
+        self.write_stock(slot, stock_after);
+        self.produced = produced_after;
+        self.record(Posting {
+            seq: 0,
+            kind: PostingKind::Produce,
+            debit: who,
+            credit: who,
+            debit_cents: 0,
+            credit_cents: 0,
+            good,
+            units_out: 0,
+            units_in: units,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+        Ok(units)
+    }
+
+    /// Consume `units` of `good` held by `who`, returning the units actually
+    /// consumed.
+    ///
+    /// **The one place a unit leaves the system,** and a real posting rather
+    /// than a bare subtraction. If consumption only moved the numbers, a
+    /// consumption defect would be invisible in the journal and LEDG-09 could
+    /// not name the posting that caused it. It is also what MKT-06 means by
+    /// consumption being an explicit modelled step.
+    ///
+    /// Refuses with [`PostError::ShortStock`] rather than driving the account
+    /// negative — the goods counterpart of refusing an overdraft, and an
+    /// economic event in the same way.
+    ///
+    /// Not a transaction, for the same reason production is not.
+    pub fn consume(&mut self, who: Account, good: GoodId, units: i64) -> Result<i64, PostError> {
+        // --- compute: every fallible step, before any write -----------------
+        if units < 0 {
+            return Err(PostError::NegativeUnits { units });
+        }
+        if !Books::carries(good) {
+            return Err(PostError::UnknownGood(good));
+        }
+        let slot = self.resolve(who).ok_or(PostError::UnknownAccount(who))?;
+
+        let held = self.stock_at(slot);
+        if held < units {
+            return Err(PostError::ShortStock {
+                account: who,
+                good,
+                units_requested: units,
+                units_held: held,
+            });
+        }
+        let stock_after = held - units;
+        let consumed_after = self.consumed + units;
+
+        // --- commit: assignments only ---------------------------------------
+        self.write_stock(slot, stock_after);
+        self.consumed = consumed_after;
+        self.record(Posting {
+            seq: 0,
+            kind: PostingKind::Consume,
+            debit: who,
+            credit: who,
+            debit_cents: 0,
+            credit_cents: 0,
+            good,
+            units_out: units,
+            units_in: 0,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+        Ok(units)
+    }
+
+    /// Move `amount` from `buyer` to `seller` and `units` of `good` from
+    /// `seller` to `buyer`, returning both quantities actually moved.
+    ///
+    /// **One posting, not two.** That is the whole point of the method. A cash
+    /// posting followed by a goods posting can be half-applied — the first
+    /// succeeds, the second is refused, and the buyer has paid for units it
+    /// never received. A single posting cannot: every refusal happens in the
+    /// compute step, before the first write, and the commit step is four
+    /// assignments and one call to the recorder, none of which can fail
+    /// (T-02-14). It is also what lets plan 02-04 check zero-sum (LEDG-07) as a
+    /// property of one posting rather than of an aggregate.
+    ///
+    /// The **buyer is the debit account** because it is the one that pays; the
+    /// units therefore travel credit-to-debit, opposite to the cash. See
+    /// [`Posting`]'s units-leg note.
+    ///
+    /// **This phase has no notion of a sale.** `exchange` is a ledger
+    /// operation. Whether a particular exchange is a household buying food,
+    /// and whether the units it receives are consumed at once or held, are
+    /// Phase 7 questions (MKT-06) that change nothing here.
+    ///
+    /// Returns the pair `(cash moved, units moved)`, and a caller must use
+    /// both. See this module's LEDG-03 note: an accumulator bumped by the
+    /// *intended* quantity leaks the moment a partial path exists, while the
+    /// ledger itself stays perfect.
+    pub fn exchange(
+        &mut self,
+        buyer: Account,
+        seller: Account,
+        good: GoodId,
+        units: i64,
+        amount: Money,
+    ) -> Result<(Money, i64), PostError> {
+        // --- compute: every fallible step, before any write -----------------
+        if amount.cents() < 0 {
+            return Err(PostError::NegativeAmount {
+                amount_cents: amount.cents(),
+            });
+        }
+        if units < 0 {
+            return Err(PostError::NegativeUnits { units });
+        }
+        if buyer == seller {
+            return Err(PostError::SelfDealing { account: buyer });
+        }
+        if !Books::carries(good) {
+            return Err(PostError::UnknownGood(good));
+        }
+
+        let buyer_slot = self
+            .resolve(buyer)
+            .ok_or(PostError::UnknownAccount(buyer))?;
+        let seller_slot = self
+            .resolve(seller)
+            .ok_or(PostError::UnknownAccount(seller))?;
+
+        let buyer_balance = self.cash_at(buyer_slot);
+        let buyer_cash_after = buyer_balance.checked_sub(amount)?;
+        if buyer_cash_after.cents() < 0 {
+            return Err(PostError::Overdraft {
+                account: buyer,
+                amount_cents: amount.cents(),
+                balance_cents: buyer_balance.cents(),
+            });
+        }
+        let seller_cash_after = self.cash_at(seller_slot).checked_add(amount)?;
+
+        let seller_held = self.stock_at(seller_slot);
+        if seller_held < units {
+            return Err(PostError::ShortStock {
+                account: seller,
+                good,
+                units_requested: units,
+                units_held: seller_held,
+            });
+        }
+        let seller_stock_after = seller_held - units;
+        let buyer_stock_after = self.stock_at(buyer_slot) + units;
+
+        // --- commit: assignments only ---------------------------------------
+        self.write_cash(buyer_slot, buyer_cash_after);
+        self.write_cash(seller_slot, seller_cash_after);
+        self.write_stock(seller_slot, seller_stock_after);
+        self.write_stock(buyer_slot, buyer_stock_after);
+        self.record(Posting {
+            seq: 0,
+            kind: PostingKind::Exchange,
+            debit: buyer,
+            credit: seller,
+            debit_cents: amount.cents(),
+            credit_cents: amount.cents(),
+            good,
+            units_out: units,
+            units_in: units,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+        Ok((amount, units))
+    }
+
     /// The cash `account` holds, or `None` if it names no account in these
     /// books — including a firm identity whose generation no longer occupies
     /// its slot.
@@ -512,6 +918,72 @@ impl Books {
         self.cash_residual_cents
     }
 
+    /// Every good these books carry.
+    ///
+    /// The goods check iterates this, so its loop body is entered on every run
+    /// — a check whose loop never runs passes vacuously, which is the failure
+    /// this accessor exists to make impossible. Takes `&self` because Phase 5
+    /// makes the table instance data rather than a constant.
+    pub fn goods(&self) -> &'static [GoodId] {
+        &GOODS
+    }
+
+    /// The units of `good` that `account` holds, or `None` if either names
+    /// nothing in these books — an unknown account, a firm identity whose
+    /// generation no longer occupies its slot, or a good the books do not
+    /// carry.
+    pub fn stock_of(&self, account: Account, good: GoodId) -> Option<i64> {
+        if !Books::carries(good) {
+            return None;
+        }
+        self.resolve(account).map(|slot| self.stock_at(slot))
+    }
+
+    /// Every unit of `good` the books hold, summed over the accounts.
+    ///
+    /// One of the two independent sources the goods check compares: this side
+    /// comes from the **stock vectors** and the produced and consumed totals,
+    /// while the running residual comes from the **postings**.
+    ///
+    /// A good these books do not carry yields zero, and that is a fact rather
+    /// than a fallback: no unit of it has ever been produced, consumed or held,
+    /// because every operation refuses it with
+    /// [`PostError::UnknownGood`] before touching a vector. Same for
+    /// [`Books::produced`] and [`Books::consumed`].
+    pub fn total_stock(&self, good: GoodId) -> i64 {
+        if !Books::carries(good) {
+            return 0;
+        }
+        self.household_stock
+            .iter()
+            .chain(self.firm_stock.iter())
+            .sum()
+    }
+
+    /// Units of `good` that have entered the system, ever — the constructor's
+    /// inventory endowment plus every [`Books::produce`].
+    pub fn produced(&self, good: GoodId) -> i64 {
+        if !Books::carries(good) {
+            return 0;
+        }
+        self.produced
+    }
+
+    /// Units of `good` that have left the system, ever, through
+    /// [`Books::consume`].
+    pub fn consumed(&self, good: GoodId) -> i64 {
+        if !Books::carries(good) {
+            return 0;
+        }
+        self.consumed
+    }
+
+    /// The goods identity's running residual, accumulated from the posting legs.
+    /// Zero when the run conserves.
+    pub fn goods_residual_units(&self) -> i64 {
+        self.goods_residual_units
+    }
+
     /// This tick's postings, in the order they were recorded.
     pub fn journal(&self) -> &[Posting] {
         &self.journal
@@ -519,10 +991,10 @@ impl Books {
 
     /// How many cash transactions this tick has recorded.
     ///
-    /// Counts [`PostingKind::Transfer`] postings and nothing else. An endowment
-    /// is not a transaction, and in plan 02-03 neither is production nor
-    /// consumption. That counting rule is what makes LEDG-08 mean "money
-    /// changed hands" rather than "something happened".
+    /// Counts [`PostingKind::Transfer`] and [`PostingKind::Exchange`] postings
+    /// and nothing else. An endowment is not a transaction, and neither is
+    /// production nor consumption. That counting rule is what makes LEDG-08
+    /// mean "money changed hands" rather than "something happened".
     pub fn transactions_this_tick(&self) -> u32 {
         self.transactions_this_tick
     }
@@ -553,11 +1025,37 @@ impl Books {
     /// [`Books::total_money`] describes into one.
     fn record(&mut self, draft: Posting) {
         let cash_delta = draft.credit_cents.saturating_sub(draft.debit_cents);
-        let goods_delta = draft.units_out.saturating_sub(draft.units_in);
+
+        // The posting's own net effect on `produced − consumed − Σstock`: what
+        // it adds to the produced total, less what it adds to the consumed
+        // total, less the units arriving net of the units leaving. Both terms
+        // are read off *this posting's* kind and legs, never off the running
+        // totals the operations maintain — which is what makes the two sources
+        // independent.
+        //
+        // The result is zero for every well-formed posting of every kind, and
+        // non-zero exactly when a posting's legs contradict the totals its kind
+        // claims to move: an exchange whose two units legs disagree, or a
+        // produce that credits units it does not count. That is the quantity
+        // the goods check localises against.
+        let (produced_added, consumed_added) = match draft.kind {
+            PostingKind::Produce | PostingKind::Endow => (draft.units_in, 0),
+            PostingKind::Consume => (0, draft.units_out),
+            PostingKind::Transfer | PostingKind::Exchange => (0, 0),
+        };
+        let goods_delta = produced_added
+            .saturating_sub(consumed_added)
+            .saturating_add(draft.units_out)
+            .saturating_sub(draft.units_in);
+
         self.cash_residual_cents = self.cash_residual_cents.saturating_add(cash_delta);
         self.goods_residual_units = self.goods_residual_units.saturating_add(goods_delta);
 
-        if draft.kind == PostingKind::Transfer {
+        // An endowment is not a transaction, and neither is production nor
+        // consumption: a tick in which firms only produced has traded nothing,
+        // which is exactly the degenerate state LEDG-08 exists to catch. Cash
+        // changing hands is what counts, whichever way the units went.
+        if matches!(draft.kind, PostingKind::Transfer | PostingKind::Exchange) {
             self.transactions_this_tick = self.transactions_this_tick.saturating_add(1);
         }
 
@@ -575,25 +1073,25 @@ impl Books {
     /// A firm address resolves only when its generation matches the ledger's
     /// record for that slot, so an identity held across a respawn is a typed
     /// miss rather than a silent hit on the successor.
-    fn resolve(&self, account: Account) -> Option<CashSlot> {
+    fn resolve(&self, account: Account) -> Option<AccountSlot> {
         match account {
             Account::Household(household) => {
                 let index = household.0 as usize;
-                (index < self.household_cash.len()).then_some(CashSlot::Household(index))
+                (index < self.household_cash.len()).then_some(AccountSlot::Household(index))
             }
             Account::Firm(firm) => {
                 let index = firm.slot.0 as usize;
                 let generation = *self.firm_generation.get(index)?;
-                (generation == firm.generation).then_some(CashSlot::Firm(index))
+                (generation == firm.generation).then_some(AccountSlot::Firm(index))
             }
         }
     }
 
     /// Read the balance at an already-resolved slot.
-    fn cash_at(&self, slot: CashSlot) -> Money {
+    fn cash_at(&self, slot: AccountSlot) -> Money {
         match slot {
-            CashSlot::Household(index) => self.household_cash[index],
-            CashSlot::Firm(index) => self.firm_cash[index],
+            AccountSlot::Household(index) => self.household_cash[index],
+            AccountSlot::Firm(index) => self.firm_cash[index],
         }
     }
 
@@ -603,11 +1101,39 @@ impl Books {
     /// vectors are fixed length for the life of the books — so this is an
     /// assignment and nothing more, which is what makes the commit step of
     /// [`Books::transfer`] infallible.
-    fn write_cash(&mut self, slot: CashSlot, value: Money) {
+    fn write_cash(&mut self, slot: AccountSlot, value: Money) {
         match slot {
-            CashSlot::Household(index) => self.household_cash[index] = value,
-            CashSlot::Firm(index) => self.firm_cash[index] = value,
+            AccountSlot::Household(index) => self.household_cash[index] = value,
+            AccountSlot::Firm(index) => self.firm_cash[index] = value,
         }
+    }
+
+    /// Read the stock at an already-resolved slot. Indexed identically to the
+    /// cash at that slot, from the same resolution.
+    fn stock_at(&self, slot: AccountSlot) -> i64 {
+        match slot {
+            AccountSlot::Household(index) => self.household_stock[index],
+            AccountSlot::Firm(index) => self.firm_stock[index],
+        }
+    }
+
+    /// Write the stock at an already-resolved slot. An assignment and nothing
+    /// more, for the same reason [`Books::write_cash`] is: that is what keeps
+    /// the commit step of the three goods operations infallible.
+    fn write_stock(&mut self, slot: AccountSlot, value: i64) {
+        match slot {
+            AccountSlot::Household(index) => self.household_stock[index] = value,
+            AccountSlot::Firm(index) => self.firm_stock[index] = value,
+        }
+    }
+
+    /// Whether these books carry `good`.
+    ///
+    /// Associated rather than a method on `&self` only until Phase 5 makes the
+    /// goods table instance data; every call site is already written against a
+    /// value the books own.
+    fn carries(good: GoodId) -> bool {
+        GOODS.contains(&good)
     }
 }
 
@@ -828,5 +1354,409 @@ mod tests {
         assert!(rendered.contains("credit = \"firm:3:1\""), "{rendered}");
         assert!(rendered.contains("kind = \"transfer\""), "{rendered}");
         assert!(rendered.contains("good = 0"), "{rendered}");
+    }
+}
+
+/// The goods half of the ledger, at unit granularity.
+///
+/// Named `goods` so that a `books::goods` module-path filter selects exactly
+/// these. Every refusal below is asserted against a clone of the books taken
+/// before the attempt, because "it returned an error" and "it wrote nothing"
+/// are two different claims and only the second is what compute-then-commit
+/// promises.
+#[cfg(test)]
+mod goods {
+    use super::*;
+    use std::path::Path;
+
+    /// The shipped parameters, loaded through the real deserialisation path so
+    /// these tests cannot drift from the configuration the binary runs on.
+    fn shipped() -> Params {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
+        let (params, _hash) = crate::config::load(&path).expect("the shipped configuration loads");
+        params
+    }
+
+    fn household(index: u32) -> Account {
+        Account::Household(HouseholdId(index))
+    }
+
+    fn firm(slot: u16, generation: u32) -> Account {
+        Account::Firm(FirmId {
+            slot: FirmSlot(slot),
+            generation,
+        })
+    }
+
+    /// The recomputed identity: produced, less consumed, less every unit held.
+    /// The side that comes from the fields rather than from the journal.
+    fn identity(books: &Books) -> i64 {
+        books.produced(ONLY_GOOD) - books.consumed(ONLY_GOOD) - books.total_stock(ONLY_GOOD)
+    }
+
+    #[test]
+    fn construction_endows_inventory_and_counts_it_into_produced() {
+        // Without the count into `produced`, the identity fails on tick 0 by
+        // exactly the endowment. This is the test for that specific defect.
+        let params = shipped();
+        let books = Books::new(&params).expect("the shipped configuration opens the books");
+        let per_firm = params.firm.initial_inventory_units;
+        let expected = i64::from(params.sim.firms) * per_firm;
+
+        assert_eq!(books.stock_of(firm(0, 0), ONLY_GOOD), Some(per_firm));
+        assert_eq!(books.stock_of(household(0), ONLY_GOOD), Some(0));
+        assert_eq!(books.total_stock(ONLY_GOOD), expected);
+        assert_eq!(books.produced(ONLY_GOOD), expected);
+        assert_eq!(books.consumed(ONLY_GOOD), 0);
+        assert_eq!(identity(&books), 0, "the identity holds at tick 0");
+        assert_eq!(books.goods_residual_units(), 0);
+        assert!(books.journal().is_empty(), "tick 0 begins empty");
+    }
+
+    #[test]
+    fn a_negative_initial_inventory_is_refused_at_construction() {
+        // The identity cannot catch this one: a negative endowment gives a
+        // negative `produced` against negative stock and balances perfectly.
+        let mut params = shipped();
+        params.firm.initial_inventory_units = -1;
+
+        assert_eq!(
+            Books::new(&params).err(),
+            Some(BooksError::InitialInventoryOutOfRange {
+                units_per_firm: -1,
+                firms: u16::try_from(params.sim.firms).expect("the shipped firm count fits"),
+            })
+        );
+    }
+
+    #[test]
+    fn production_raises_both_the_stock_and_the_produced_total() {
+        let mut books = Books::new(&shipped()).expect("the shipped configuration opens the books");
+        let stock_before = books
+            .stock_of(firm(0, 0), ONLY_GOOD)
+            .expect("slot 0 exists");
+        let produced_before = books.produced(ONLY_GOOD);
+
+        let made = books
+            .produce(firm(0, 0), ONLY_GOOD, 40)
+            .expect("a firm can produce");
+
+        assert_eq!(made, 40, "the units actually created are reported");
+        assert_eq!(
+            books.stock_of(firm(0, 0), ONLY_GOOD),
+            Some(stock_before + 40)
+        );
+        assert_eq!(books.produced(ONLY_GOOD), produced_before + 40);
+        assert_eq!(identity(&books), 0);
+        assert_eq!(books.goods_residual_units(), 0);
+
+        let posting = books.journal().first().copied().expect("one posting");
+        assert_eq!(posting.kind, PostingKind::Produce);
+        assert_eq!(posting.units_in, 40);
+        assert_eq!(posting.units_out, 0);
+        assert_eq!(posting.debit_cents, 0);
+        assert_eq!(posting.goods_residual_units, 0);
+        assert_eq!(
+            posting.to_string(),
+            "#0 produce firm:0:0 -> firm:0:0 debit 0c credit 0c good:0 out 0 in 40"
+        );
+    }
+
+    #[test]
+    fn consumption_lowers_the_stock_raises_the_consumed_total_and_posts() {
+        let mut books = Books::new(&shipped()).expect("the shipped configuration opens the books");
+        let held = books
+            .stock_of(firm(0, 0), ONLY_GOOD)
+            .expect("slot 0 exists");
+
+        let eaten = books
+            .consume(firm(0, 0), ONLY_GOOD, 5)
+            .expect("a firm holding stock can consume from it");
+
+        assert_eq!(eaten, 5);
+        assert_eq!(books.stock_of(firm(0, 0), ONLY_GOOD), Some(held - 5));
+        assert_eq!(books.consumed(ONLY_GOOD), 5);
+        assert_eq!(identity(&books), 0);
+        assert_eq!(books.goods_residual_units(), 0);
+
+        // A real posting, not a bare subtraction: LEDG-09 must be able to name
+        // the line, and MKT-06 asks for consumption as a modelled step.
+        let posting = books.journal().first().copied().expect("one posting");
+        assert_eq!(posting.kind, PostingKind::Consume);
+        assert_eq!(posting.units_out, 5);
+        assert_eq!(posting.units_in, 0);
+    }
+
+    #[test]
+    fn consuming_beyond_the_stock_is_refused_and_writes_nothing() {
+        let mut books = Books::new(&shipped()).expect("the shipped configuration opens the books");
+        let untouched = books.clone();
+        let held = books
+            .stock_of(firm(0, 0), ONLY_GOOD)
+            .expect("slot 0 exists");
+
+        assert_eq!(
+            books.consume(firm(0, 0), ONLY_GOOD, held + 1),
+            Err(PostError::ShortStock {
+                account: firm(0, 0),
+                good: ONLY_GOOD,
+                units_requested: held + 1,
+                units_held: held,
+            })
+        );
+
+        assert_eq!(books.stock_of(firm(0, 0), ONLY_GOOD), Some(held));
+        assert_eq!(books.consumed(ONLY_GOOD), untouched.consumed(ONLY_GOOD));
+        assert_eq!(
+            books.total_stock(ONLY_GOOD),
+            untouched.total_stock(ONLY_GOOD)
+        );
+        assert!(books.journal().is_empty(), "a refusal writes nothing");
+    }
+
+    #[test]
+    fn a_completed_exchange_moves_both_and_reports_both() {
+        let params = shipped();
+        let mut books = Books::new(&params).expect("the shipped configuration opens the books");
+        let buyer = household(0);
+        let seller = firm(0, 0);
+        let buyer_cash = books.cash_of(buyer).expect("household 0 exists");
+        let seller_cash = books.cash_of(seller).expect("slot 0 exists");
+        let seller_stock = books.stock_of(seller, ONLY_GOOD).expect("slot 0 exists");
+
+        let (paid, received) = books
+            .exchange(buyer, seller, ONLY_GOOD, 3, Money::from_cents(315))
+            .expect("an endowed household can buy three units");
+
+        assert_eq!(paid, Money::from_cents(315));
+        assert_eq!(received, 3);
+        assert_eq!(
+            books.cash_of(buyer),
+            Some(Money::from_cents(buyer_cash.cents() - 315))
+        );
+        assert_eq!(
+            books.cash_of(seller),
+            Some(Money::from_cents(seller_cash.cents() + 315))
+        );
+        assert_eq!(books.stock_of(buyer, ONLY_GOOD), Some(3));
+        assert_eq!(
+            books.stock_of(seller, ONLY_GOOD),
+            Some(seller_stock - 3),
+            "the units came out of the seller's inventory"
+        );
+
+        // Both conservation properties, from both sources.
+        assert_eq!(books.total_money().cents(), params.money.total_money_cents);
+        assert_eq!(books.cash_residual_cents(), 0);
+        assert_eq!(identity(&books), 0);
+        assert_eq!(books.goods_residual_units(), 0);
+
+        // One posting, never two: two could be half-applied.
+        assert_eq!(books.journal().len(), 1);
+        let posting = books.journal()[0];
+        assert_eq!(posting.kind, PostingKind::Exchange);
+        assert_eq!(posting.debit, buyer, "the buyer pays, so it is the debit");
+        assert_eq!(posting.credit, seller);
+        assert_eq!(posting.debit_cents, 315);
+        assert_eq!(posting.credit_cents, 315);
+        assert_eq!(posting.units_out, 3, "units left the credit account");
+        assert_eq!(posting.units_in, 3, "units arrived at the debit account");
+    }
+
+    #[test]
+    fn every_refused_exchange_moves_neither_cash_nor_units() {
+        let params = shipped();
+        let mut books = Books::new(&params).expect("the shipped configuration opens the books");
+        let untouched = books.clone();
+        let buyer = household(0);
+        let seller = firm(0, 0);
+        let liquidity = params.household.initial_liquidity_cents;
+        let seller_stock = books.stock_of(seller, ONLY_GOOD).expect("slot 0 exists");
+
+        let refusals = [
+            (
+                books.exchange(
+                    buyer,
+                    seller,
+                    ONLY_GOOD,
+                    1,
+                    Money::from_cents(liquidity + 1),
+                ),
+                PostError::Overdraft {
+                    account: buyer,
+                    amount_cents: liquidity + 1,
+                    balance_cents: liquidity,
+                },
+            ),
+            (
+                books.exchange(
+                    buyer,
+                    seller,
+                    ONLY_GOOD,
+                    seller_stock + 1,
+                    Money::from_cents(1),
+                ),
+                PostError::ShortStock {
+                    account: seller,
+                    good: ONLY_GOOD,
+                    units_requested: seller_stock + 1,
+                    units_held: seller_stock,
+                },
+            ),
+            (
+                books.exchange(buyer, seller, ONLY_GOOD, 1, Money::from_cents(-1)),
+                PostError::NegativeAmount { amount_cents: -1 },
+            ),
+            (
+                books.exchange(buyer, seller, ONLY_GOOD, -1, Money::from_cents(1)),
+                PostError::NegativeUnits { units: -1 },
+            ),
+            (
+                books.exchange(buyer, buyer, ONLY_GOOD, 1, Money::from_cents(1)),
+                PostError::SelfDealing { account: buyer },
+            ),
+            (
+                books.exchange(buyer, seller, GoodId(7), 1, Money::from_cents(1)),
+                PostError::UnknownGood(GoodId(7)),
+            ),
+            (
+                books.exchange(household(9_999), seller, ONLY_GOOD, 1, Money::from_cents(1)),
+                PostError::UnknownAccount(household(9_999)),
+            ),
+            (
+                books.exchange(buyer, firm(0, 1), ONLY_GOOD, 1, Money::from_cents(1)),
+                PostError::UnknownAccount(firm(0, 1)),
+            ),
+        ];
+
+        for (actual, expected) in refusals {
+            assert_eq!(actual, Err(expected));
+        }
+
+        assert_eq!(books.total_money(), untouched.total_money());
+        assert_eq!(books.cash_of(buyer), untouched.cash_of(buyer));
+        assert_eq!(books.cash_of(seller), untouched.cash_of(seller));
+        assert_eq!(
+            books.total_stock(ONLY_GOOD),
+            untouched.total_stock(ONLY_GOOD)
+        );
+        assert_eq!(books.stock_of(seller, ONLY_GOOD), Some(seller_stock));
+        assert_eq!(books.stock_of(buyer, ONLY_GOOD), Some(0));
+        assert_eq!(books.produced(ONLY_GOOD), untouched.produced(ONLY_GOOD));
+        assert_eq!(books.consumed(ONLY_GOOD), untouched.consumed(ONLY_GOOD));
+        assert!(books.journal().is_empty(), "a refusal writes nothing");
+        assert_eq!(books.transactions_this_tick(), 0);
+    }
+
+    #[test]
+    fn an_unknown_good_is_refused_rather_than_indexed() {
+        let mut books = Books::new(&shipped()).expect("the shipped configuration opens the books");
+        let untouched = books.clone();
+        let missing = GoodId(7);
+
+        assert_eq!(
+            books.produce(firm(0, 0), missing, 1),
+            Err(PostError::UnknownGood(missing))
+        );
+        assert_eq!(
+            books.consume(firm(0, 0), missing, 1),
+            Err(PostError::UnknownGood(missing))
+        );
+        assert_eq!(books.stock_of(firm(0, 0), missing), None);
+
+        // Zero, and true rather than a fallback: no unit of a good the books do
+        // not carry can ever have been produced, consumed or held.
+        assert_eq!(books.total_stock(missing), 0);
+        assert_eq!(books.produced(missing), 0);
+        assert_eq!(books.consumed(missing), 0);
+
+        assert_eq!(books.produced(ONLY_GOOD), untouched.produced(ONLY_GOOD));
+        assert_eq!(
+            books.total_stock(ONLY_GOOD),
+            untouched.total_stock(ONLY_GOOD)
+        );
+        assert!(books.journal().is_empty(), "a refusal writes nothing");
+    }
+
+    #[test]
+    fn a_negative_count_is_refused_by_production_and_by_consumption() {
+        let mut books = Books::new(&shipped()).expect("the shipped configuration opens the books");
+
+        assert_eq!(
+            books.produce(firm(0, 0), ONLY_GOOD, -1),
+            Err(PostError::NegativeUnits { units: -1 })
+        );
+        assert_eq!(
+            books.consume(firm(0, 0), ONLY_GOOD, -1),
+            Err(PostError::NegativeUnits { units: -1 })
+        );
+        assert!(books.journal().is_empty(), "a refusal writes nothing");
+    }
+
+    #[test]
+    fn the_transaction_count_rises_for_an_exchange_and_not_for_a_production() {
+        // The distinction LEDG-08 rests on: a tick in which firms only produced
+        // has traded nothing.
+        let mut books = Books::new(&shipped()).expect("the shipped configuration opens the books");
+
+        books
+            .produce(firm(0, 0), ONLY_GOOD, 10)
+            .expect("a firm can produce");
+        books
+            .consume(firm(0, 0), ONLY_GOOD, 2)
+            .expect("a firm holding stock can consume");
+        assert_eq!(
+            books.transactions_this_tick(),
+            0,
+            "production and consumption move no money"
+        );
+
+        books
+            .exchange(
+                household(0),
+                firm(0, 0),
+                ONLY_GOOD,
+                1,
+                Money::from_cents(105),
+            )
+            .expect("an endowed household can buy a unit");
+        assert_eq!(books.transactions_this_tick(), 1);
+
+        books
+            .transfer(household(1), firm(0, 0), Money::from_cents(1))
+            .expect("an endowed household can pay a cent");
+        assert_eq!(books.transactions_this_tick(), 2);
+    }
+
+    #[test]
+    fn the_goods_posting_kinds_serialise_under_their_own_names() {
+        // Phase 3 writes this shape into its event stream; pinned here so a
+        // change to it is a reviewed diff rather than a silent one.
+        for (kind, expected) in [
+            (PostingKind::Exchange, "exchange"),
+            (PostingKind::Produce, "produce"),
+            (PostingKind::Consume, "consume"),
+        ] {
+            let posting = Posting {
+                seq: 0,
+                kind,
+                debit: household(12),
+                credit: firm(3, 1),
+                debit_cents: 250,
+                credit_cents: 250,
+                good: ONLY_GOOD,
+                units_out: 2,
+                units_in: 2,
+                cash_residual_cents: 0,
+                goods_residual_units: 0,
+            };
+            let rendered = toml::to_string(&posting).expect("a posting serialises");
+            assert!(
+                rendered.contains(&format!("kind = \"{expected}\"")),
+                "{rendered}"
+            );
+            assert!(rendered.contains("units_out = 2"), "{rendered}");
+            assert!(rendered.contains("units_in = 2"), "{rendered}");
+        }
     }
 }
