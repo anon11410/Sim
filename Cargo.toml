@@ -20,9 +20,32 @@ sha2      = "0.10.9"
 thiserror = "2.0.20"
 clap      = { version = "4.6.6", features = ["derive"] }
 anyhow    = "1.0.104"
+# The log seam (TICK-03/TICK-04). `csv` writes the fixed-schema per-tick
+# series; `serde_json` writes the heterogeneous event stream and backs the
+# schema emitter's type probe. Both take DEFAULT features. serde_json's
+# map-ordering feature in particular is deliberately NOT enabled: it swaps the
+# map behind `Value` from a `BTreeMap` to an `IndexMap`, and cargo unifies
+# features across the graph, so enabling it here would be a byte-shape change
+# any future dependency could then impose. The feature is named in
+# 03-RESEARCH.md rather than here on purpose: the guard on it greps this file
+# for the literal name, so a mention in a comment is indistinguishable from an
+# enablement and would trip it.
+csv        = "1.4.0"
+serde_json = "1.0.151"
 
 [dev-dependencies]
 proptest = "1.11.0"
+# Process-level tests only, and they must stay dev-only: a normal edge would
+# put `getrandom` on the behaviour path and turn tests/toolchain.sh check 4
+# red. `assert_cmd` drives the cross-process determinism test and the
+# process-level halt, neither reachable from a library test; `predicates` is
+# deliberately absent, since assert_cmd does not re-export it and the tests use
+# `.assert().failure().code(1)` plus a plain `assert!` on the captured stderr.
+# `tempfile` gives each run an isolated directory -- it was already in the
+# resolved graph via proptest, so promoting it to a direct dev-dependency adds
+# no package.
+assert_cmd = "2.2.2"
+tempfile   = "3.27.0"
 
 [profile.release]
 # CORE-02 / D-10: default release silently wraps i64 arithmetic. Keep `panic`
