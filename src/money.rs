@@ -43,8 +43,17 @@ pub struct MoneyOverflow {
 
 /// An amount of money, in integer cents.
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default,
-    serde::Serialize, serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
 )]
 #[serde(transparent)]
 pub struct Money(i64);
@@ -67,18 +76,20 @@ impl Money {
 
     /// `self + other`, reporting overflow as a value instead of a panic.
     pub fn checked_add(self, other: Money) -> Result<Money, MoneyOverflow> {
-        self.0
-            .checked_add(other.0)
-            .map(Money)
-            .ok_or(MoneyOverflow { lhs: self.0, op: "+", rhs: other.0 })
+        self.0.checked_add(other.0).map(Money).ok_or(MoneyOverflow {
+            lhs: self.0,
+            op: "+",
+            rhs: other.0,
+        })
     }
 
     /// `self - other`, reporting overflow as a value instead of a panic.
     pub fn checked_sub(self, other: Money) -> Result<Money, MoneyOverflow> {
-        self.0
-            .checked_sub(other.0)
-            .map(Money)
-            .ok_or(MoneyOverflow { lhs: self.0, op: "-", rhs: other.0 })
+        self.0.checked_sub(other.0).map(Money).ok_or(MoneyOverflow {
+            lhs: self.0,
+            op: "-",
+            rhs: other.0,
+        })
     }
 
     /// `self * num / den`, multiplying first and truncating toward zero.
@@ -88,15 +99,17 @@ impl Money {
     /// Returns `Err` on multiplication overflow, on a zero denominator, and
     /// on the one division that cannot be represented.
     pub fn try_scale(self, num: i64, den: i64) -> Result<Money, MoneyOverflow> {
-        let product = self
-            .0
-            .checked_mul(num)
-            .ok_or(MoneyOverflow { lhs: self.0, op: "*", rhs: num })?;
+        let product = self.0.checked_mul(num).ok_or(MoneyOverflow {
+            lhs: self.0,
+            op: "*",
+            rhs: num,
+        })?;
 
-        product
-            .checked_div(den)
-            .map(Money)
-            .ok_or(MoneyOverflow { lhs: product, op: "/", rhs: den })
+        product.checked_div(den).map(Money).ok_or(MoneyOverflow {
+            lhs: product,
+            op: "/",
+            rhs: den,
+        })
     }
 
     // --- Conserving division (D-09) ---------------------------------------
@@ -140,7 +153,11 @@ impl Money {
 
         let mut parts = Vec::with_capacity(n as usize);
         for index in 0..u64::from(n) {
-            parts.push(Money(if index < extra_recipients { bumped } else { base }));
+            parts.push(Money(if index < extra_recipients {
+                bumped
+            } else {
+                base
+            }));
         }
         parts
     }
@@ -154,11 +171,7 @@ impl std::ops::Add for Money {
     /// Panics on overflow in every profile — this is `checked_add`, not `+`,
     /// so it does not depend on `[profile.release] overflow-checks`.
     fn add(self, other: Money) -> Money {
-        Money(
-            self.0
-                .checked_add(other.0)
-                .expect("Money overflow on add"),
-        )
+        Money(self.0.checked_add(other.0).expect("Money overflow on add"))
     }
 }
 
@@ -167,11 +180,7 @@ impl std::ops::Sub for Money {
 
     /// Panics on overflow in every profile.
     fn sub(self, other: Money) -> Money {
-        Money(
-            self.0
-                .checked_sub(other.0)
-                .expect("Money overflow on sub"),
-        )
+        Money(self.0.checked_sub(other.0).expect("Money overflow on sub"))
     }
 }
 
@@ -267,7 +276,11 @@ mod tests {
     fn checked_add_at_the_maximum_returns_the_named_error() {
         assert_eq!(
             Money::from_cents(i64::MAX).checked_add(Money::from_cents(1)),
-            Err(MoneyOverflow { lhs: i64::MAX, op: "+", rhs: 1 })
+            Err(MoneyOverflow {
+                lhs: i64::MAX,
+                op: "+",
+                rhs: 1
+            })
         );
     }
 
@@ -287,7 +300,11 @@ mod tests {
         );
         assert_eq!(
             Money::from_cents(i64::MIN).checked_sub(Money::from_cents(1)),
-            Err(MoneyOverflow { lhs: i64::MIN, op: "-", rhs: 1 })
+            Err(MoneyOverflow {
+                lhs: i64::MIN,
+                op: "-",
+                rhs: 1
+            })
         );
     }
 
@@ -298,8 +315,14 @@ mod tests {
             Ok(Money::from_cents(750))
         );
         // Truncation is toward zero on both signs, never toward minus infinity.
-        assert_eq!(Money::from_cents(-1_000).try_scale(3, 4), Ok(Money::from_cents(-750)));
-        assert_eq!(Money::from_cents(7).try_scale(1, 2), Ok(Money::from_cents(3)));
+        assert_eq!(
+            Money::from_cents(-1_000).try_scale(3, 4),
+            Ok(Money::from_cents(-750))
+        );
+        assert_eq!(
+            Money::from_cents(7).try_scale(1, 2),
+            Ok(Money::from_cents(3))
+        );
         assert!(Money::from_cents(i64::MAX).try_scale(2, 1).is_err());
         assert!(Money::from_cents(1_000).try_scale(1, 0).is_err());
     }

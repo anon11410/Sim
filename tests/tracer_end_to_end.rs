@@ -65,7 +65,8 @@ fn runs_end_to_end() {
     let hash = field(line, "config_sha256");
     assert_eq!(hash.len(), 64, "digest is not 64 hex characters: {hash}");
     assert!(
-        hash.chars().all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+        hash.chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
         "digest is not lowercase hex: {hash}",
     );
 
@@ -74,12 +75,19 @@ fn runs_end_to_end() {
     // printed is reachable from `tests/` through `use sim::…`.
     let (params, library_hash): (Params, String) =
         sim::config::load(Path::new(CONFIG)).expect("library failed to load the same config");
-    assert_eq!(hash, library_hash, "binary and library disagree on the config hash");
+    assert_eq!(
+        hash, library_hash,
+        "binary and library disagree on the config hash"
+    );
 
     let mut probe = Rngs::new(7).stream(0, 0, Purpose::TracerProbe);
     let draw = probe.below(1_000_000);
     assert_eq!(probe.draws(), 1, "below() must take exactly one draw");
-    assert_eq!(field(line, "draw"), draw.to_string(), "binary and library disagree on the draw");
+    assert_eq!(
+        field(line, "draw"),
+        draw.to_string(),
+        "binary and library disagree on the draw"
+    );
 
     let money = Money::from_cents(params.money.total_money_cents) + Money::ZERO;
     assert_eq!(field(line, "money_cents"), money.cents().to_string());
@@ -137,5 +145,9 @@ fn raw_i64_overflow_panics_in_release() {
 fn raw_i64_at_the_maximum_does_not_panic() {
     let lhs = std::hint::black_box(i64::MAX - 1);
     let rhs = std::hint::black_box(1i64);
-    assert_eq!(lhs + rhs, i64::MAX, "one step below the edge must not panic");
+    assert_eq!(
+        lhs + rhs,
+        i64::MAX,
+        "one step below the edge must not panic"
+    );
 }
