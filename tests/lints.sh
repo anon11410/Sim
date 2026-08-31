@@ -25,7 +25,7 @@
 #
 #   5. a shared borrow held across a mutation does not compile   (LEDG-02 leg 1)
 #   6. the fault-injection vocabulary is unreachable from tests/ (LEDG-10)
-#   7. ten source guards, each proved to fire first              (LEDG-01/02/10)
+#   7. eleven source guards, each proved to fire first              (LEDG-01/02/10)
 #
 # Checks 5 and 6 assert the specific DIAGNOSTIC CODE and not merely that the
 # build failed, for the reason check 2 documents about itself. Check 7's guards
@@ -374,12 +374,12 @@ esac
 echo "  check 6: the fault-injection vocabulary is refused from tests/ with E0599"
 
 # ---------------------------------------------------------------------------
-# 7. Ten source guards, each proved to fire before it is trusted to be silent.
+# 7. Eleven source guards, each proved to fire before it is trusted to be silent.
 # ---------------------------------------------------------------------------
 # These are the parts of LEDG-01, LEDG-02 and LEDG-10 that no compiler and no
 # lint can express.
 #
-# THE DISCIPLINE, and it applies to all ten. A grep pattern with a typo
+# THE DISCIPLINE, and it applies to all eleven. A grep pattern with a typo
 # matches nothing, and a pattern that matches nothing looks exactly like a
 # pattern that is silent because the tree is clean — the grep form of the hole
 # check 3 exists to close for clippy's silently-unresolvable paths. So every
@@ -661,6 +661,59 @@ assert_ignores 7f-set_cash "$SET_CASH_PATTERN" '    pub fn set_headcount(&mut se
 assert_absent "guard 7f: a cash setter is declared under src/. The books own the quantity; there is nothing for an agent to set (LEDG-01). This is the weaker half of 7f — the types it is about arrive in Phase 3, see ROADMAP Phase 3 success criterion 7" \
     -rnE "$SET_CASH_PATTERN" -- "${SRC_FILES[@]}"
 
+# 7f-agents. Household and Firm hold no balance (ROADMAP Phase 3 criterion 7).
+#
+#     THIS IS THE INHERITED OBLIGATION 7f ABOVE POINTS AT, discharged in the
+#     same commit that introduced the two types. The half of 7f that searches
+#     for a private balance identifier cannot see a field spelled `cash` on
+#     `struct Household`, and neither can the set_cash half: the defect
+#     criterion 7 is actually about matches neither pattern. 7f was silent on
+#     the agent types not because they were clean but because it could not see
+#     them.
+mapfile -t AGENT_SRC < <(git ls-files -- 'src/world.rs')
+if [ "${#AGENT_SRC[@]}" -eq 0 ]; then
+    fail "guard 7f-agents: src/world.rs is not tracked — the guard would pass trivially"
+fi
+
+# (a) An agent type may not declare a money-TYPED field. Anchored to struct-field
+#     syntax (trailing comma, line-anchored) so a legitimate local binding of type
+#     Money is left alone — a pattern without that anchor fires on
+#     `let held: Money = books.cash_of(a).unwrap();`, which was reproduced.
+MONEY_FIELD='^[[:space:]]*(pub[[:space:]]+)?[a-z_]+[[:space:]]*:[[:space:]]*(crate::money::)?(Money|Cents)[[:space:]]*,[[:space:]]*$'
+assert_fires 7f-agents "$MONEY_FIELD" 4 '    pub cash: Money,
+    balance: Money,
+    pub wallet : Cents,
+    pub hoard: crate::money::Money,'
+assert_ignores 7f-agents "$MONEY_FIELD" '    pub price_cents: i64,
+    pub id: HouseholdId,
+    fn cash_of(&self, a: Account) -> Option<Money> {
+    let held: Money = books.cash_of(a).unwrap();
+    let m: Money = Money::ZERO;'
+assert_absent "guard 7f-agents: an agent type in src/world.rs declares a money-typed field. The books own every cent (LEDG-01, ROADMAP Phase 3 criterion 7)" \
+    -nE "$MONEY_FIELD" -- "${AGENT_SRC[@]}"
+
+# (b) A balance-SHAPED field name, whatever its type. An i64 named `cash` evades
+#     (a) entirely and is the same defect.
+BALANCE_NAME='^[[:space:]]*(pub[[:space:]]+)?(cash|balance|funds|wallet|savings|deposits|inventory|stock|units_held|headcount|employees)[[:space:]]*:'
+assert_fires 7f-agents-name "$BALANCE_NAME" 4 '    pub cash: i64,
+    balance: u64,
+    pub inventory: i64,
+    headcount: u32,'
+assert_ignores 7f-agents-name "$BALANCE_NAME" '    pub price_cents: i64,
+    pub id: HouseholdId,
+    let cash: Money = books.cash_of(a).unwrap();
+    fn cash(&self) -> Money {'
+assert_absent "guard 7f-agents: an agent type in src/world.rs declares a balance-shaped field. The books own the quantity" \
+    -nE "$BALANCE_NAME" -- "${AGENT_SRC[@]}"
+
+# (c) The types this criterion is about must actually EXIST here, or (a) and (b)
+#     are guards over nothing — the same "pin the probe to a declaration count"
+#     discipline guard 7j already uses.
+for t in Household Firm; do
+    grep -qE "^(pub )?struct $t\b" "${AGENT_SRC[@]}" \
+      || fail "guard 7f-agents: struct $t is not declared in src/world.rs — the guard polices a set that does not contain the types criterion 7 names"
+done
+
 # 7g. No accessor hands out the mutation point.
 #
 #     A function returning a mutable reference gives the caller the very
@@ -780,6 +833,6 @@ if [ "$PROBE_CALLS" -ne "$CORRUPT_COUNT" ]; then
     fail "guard 7j: $CFG_PROBE_SRC calls $PROBE_CALLS corruption methods but $BOOKS_SRC declares $CORRUPT_COUNT. Check 6's E0599 assertion only covers the methods the probe names, so an unnamed one could leave the #[cfg(test)] block with check 6 still reporting success"
 fi
 
-echo "  check 7: ten source guards (7a callbacks, 7b/7c shared mutability, 7d compiled-out invariants, 7e one gate read, 7f/7g balance writes, 7h halt-message environment, 7i/7j the fault-injection gate), each proved to fire on a hazard fixture first"
+echo "  check 7: eleven source guards (7a callbacks, 7b/7c shared mutability, 7d compiled-out invariants, 7e one gate read, 7f/7f-agents/7g balance writes, 7h halt-message environment, 7i/7j the fault-injection gate), each proved to fire on a hazard fixture first"
 
-echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, both compile-fail probes are refused with the exact diagnostic they name, and ten source guards are silent on a tree each of them was first watched firing on"
+echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, both compile-fail probes are refused with the exact diagnostic they name, and eleven source guards are silent on a tree each of them was first watched firing on"
