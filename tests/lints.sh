@@ -277,11 +277,11 @@ set -e
 rm -f "$BORROW_PROBE_DST"
 
 if [ "$BORROW_STATUS" -eq 0 ]; then
-    fail "a shared borrow of the books held live across a call to transfer COMPILED — LEDG-02 leg 1 does not hold, or the probe's trailing use of the borrow was tidied away so the borrow no longer spans the mutation"
+    fail "a shared borrow of the books held live across a call to transfer COMPILED — LEDG-02 leg 1 does not hold, or the trailing use of the borrow in tests/lint-probes/books_borrow_probe.rs.txt was tidied away so the borrow no longer spans the mutation"
 fi
 case "$BORROW_OUT" in
     *"E0502"*) ;;
-    *) fail "the borrow probe failed to build but produced no E0502 — it broke for an unrelated reason (a renamed constructor, a changed signature), so this check is reporting nothing about the borrow rule" ;;
+    *) fail "tests/lint-probes/books_borrow_probe.rs.txt failed to build but produced no E0502 — it broke for an unrelated reason (a renamed constructor, a changed signature), so this check is reporting nothing about the borrow rule" ;;
 esac
 echo "  check 5: a shared borrow held across a mutation is refused with E0502"
 
@@ -305,12 +305,334 @@ set -e
 rm -f "$CFG_PROBE_DST"
 
 if [ "$CFG_STATUS" -eq 0 ]; then
-    fail "an integration test CALLED a fault-injection method on Books — the corruption vocabulary has escaped the crate's own test configuration and is reachable by any consumer of sim"
+    fail "tests/lint-probes/books_cfg_test_probe.rs.txt COMPILED: an integration test called a fault-injection method on Books — the corruption vocabulary has escaped the crate's own test configuration and is reachable by any consumer of sim"
 fi
 case "$CFG_OUT" in
     *"E0599"*) ;;
-    *) fail "the reachability probe failed to build but produced no E0599 — it broke for an unrelated reason, so this check is reporting nothing about the fault-injection boundary" ;;
+    *) fail "tests/lint-probes/books_cfg_test_probe.rs.txt failed to build but produced no E0599 — it broke for an unrelated reason, so this check is reporting nothing about the fault-injection boundary" ;;
 esac
 echo "  check 6: the fault-injection vocabulary is refused from tests/ with E0599"
 
-echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, and both compile-fail probes are refused with the exact diagnostic they name"
+# ---------------------------------------------------------------------------
+# 7. Eight source guards, each proved to fire before it is trusted to be silent.
+# ---------------------------------------------------------------------------
+# These are the parts of LEDG-01, LEDG-02 and LEDG-10 that no compiler and no
+# lint can express.
+#
+# THE DISCIPLINE, and it applies to all eight. A grep pattern with a typo
+# matches nothing, and a pattern that matches nothing looks exactly like a
+# pattern that is silent because the tree is clean — the grep form of the hole
+# check 3 exists to close for clippy's silently-unresolvable paths. So every
+# guard below defines its pattern once, proves it MATCHES a hazard fixture
+# holding the very thing it is meant to catch, and only then asserts the pattern
+# is absent from the real files. Where a guard must also leave a legitimate
+# lookalike alone, that is asserted against a second, PERMITTED fixture.
+#
+# Every guard also asserts its search set is non-empty, following check 4b's
+# treatment of the tracked-file list: a guard over an empty set passes trivially
+# and is then believed to be protecting something (02-RESEARCH.md Pitfall 4).
+
+# Proof that a guard's pattern fires: it must match exactly the number of hazard
+# lines its fixture holds, so every alternative in an alternation is exercised
+# rather than only the first.
+assert_fires() {
+    local what="$1" pattern="$2" expected="$3" fixture="$4"
+    local hits status
+    set +e
+    # -e, because a pattern may legitimately begin with a dash (guard 7g's
+    # return-type pattern starts with "->") and grep would read it as a flag.
+    hits=$(printf '%s\n' "$fixture" | grep -cE -e "$pattern")
+    status=$?
+    set -e
+    if [ "$status" -gt 1 ]; then
+        fail "guard $what: could not search its own hazard fixture (grep exit $status)"
+    fi
+    if [ "$hits" -ne "$expected" ]; then
+        fail "guard $what: its pattern matched $hits of the $expected hazard lines in its own fixture — the pattern has a typo, so its silence on the real tree would prove nothing"
+    fi
+}
+
+# The other half of the same discipline: a pattern must leave the PERMITTED
+# spelling alone, or the guard fires on legitimate source and gets deleted.
+assert_ignores() {
+    local what="$1" pattern="$2" fixture="$3"
+    local hits status
+    set +e
+    # -e, because a pattern may legitimately begin with a dash (guard 7g's
+    # return-type pattern starts with "->") and grep would read it as a flag.
+    hits=$(printf '%s\n' "$fixture" | grep -cE -e "$pattern")
+    status=$?
+    set -e
+    if [ "$status" -gt 1 ]; then
+        fail "guard $what: could not search its permitted-spelling fixture (grep exit $status)"
+    fi
+    if [ "$hits" -ne 0 ]; then
+        fail "guard $what: its pattern matched $hits line(s) of its PERMITTED fixture — it would fire on legitimate source"
+    fi
+}
+
+# Absence over content held in a variable, so a guard can search a file with its
+# line comments stripped or its test modules removed and still report real line
+# numbers. Same grep-status discipline as assert_absent: status 2 is a failure
+# and never a passing comparison.
+assert_absent_in() {
+    local what="$1" pattern="$2" content="$3"
+    local hits status
+    set +e
+    hits=$(printf '%s\n' "$content" | grep -nE -e "$pattern")
+    status=$?
+    set -e
+    if [ "$status" -gt 1 ]; then
+        fail "could not search for $what (grep exit $status)"
+    fi
+    if [ -n "$hits" ]; then
+        fail "$what — found: $(echo "$hits" | tr '\n' ' ')"
+    fi
+}
+
+# Everything before the first `#[cfg(test)]` line: the code that ships in the
+# binary that produced a run. Guards 7e and 7h are claims about THAT code. The
+# unit-test modules below it legitimately load the shipped configuration from a
+# path and legitimately set the liveness key on a Params value, and a guard that
+# fired on them would be forbidding the tests from testing.
+production_source() {
+    awk 'index($0, "#[cfg(test)]") == 1 { exit } { print }' "$1"
+}
+
+mapfile -t SRC_FILES < <(git ls-files -- 'src/*.rs')
+if [ "${#SRC_FILES[@]}" -eq 0 ]; then
+    fail "found no tracked Rust sources under src/ to search — expected at least src/lib.rs"
+fi
+
+# Line comments stripped: a doc comment explaining a rule must not trip the
+# guard that enforces it. Line numbers are preserved, one output line per input
+# line, so a failure still names the real line in the real file.
+BOOKS_CODE=$(sed 's://.*::' "$BOOKS_SRC")
+INVARIANTS_CODE=$(production_source "$INVARIANTS_SRC" | sed 's://.*::')
+INVARIANTS_PRODUCTION=$(production_source "$INVARIANTS_SRC")
+
+for content in "$BOOKS_CODE" "$INVARIANTS_CODE" "$INVARIANTS_PRODUCTION"; do
+    [ -n "$content" ] || fail "a guard's search content is empty — a guard over an empty set passes trivially"
+done
+
+# 7a. No callback in the ledger.
+#
+#     An exclusive `&mut self` borrow constrains an EXTERNAL observer. A
+#     callback is an INTERNAL one and is exempt by construction: a `&mut Books`
+#     method taking `hook: impl Fn(&Books)` hands that hook a mid-transaction
+#     view, and it compiles and runs clean. Reproduced in research — the hook
+#     observed a total of 50 cents against an opening stock of 100. So leg 1 of
+#     LEDG-02 alone is FALSE, and this guard is the leg that closes it.
+#
+#     The next person to add a mutating method with a logging hook must find
+#     that reason here rather than read the guard as arbitrary. Read the journal
+#     after the call instead — that is what it is for.
+CALLBACK_PATTERN='impl[[:space:]]+Fn(Mut|Once)?[[:space:]<(]|dyn[[:space:]]+Fn|Box<[[:space:]]*dyn|&[[:space:]]*dyn[[:space:]]'
+assert_fires 7a "$CALLBACK_PATTERN" 6 '    pub fn transfer(&mut self, amount: Money, hook: impl Fn(&Books)) {}
+    pub fn transfer(&mut self, amount: Money, hook: impl FnMut(&Books)) {}
+    pub fn transfer(&mut self, amount: Money, hook: impl FnOnce(&Books)) {}
+    pub fn transfer(&mut self, hook: &mut dyn FnMut(&Books)) {}
+    observer: Box<dyn Observer>,
+    pub fn transfer(&mut self, observer: &dyn Observer) {}'
+assert_ignores 7a "$CALLBACK_PATTERN" '    pub fn accounts(&self) -> impl Iterator<Item = Account> + '"'"'_ {
+impl Books {
+    fn record(&mut self, draft: Posting) {'
+assert_absent_in "guard 7a: a mutating ledger method takes a callback, which is an INTERNAL observer the borrow checker cannot constrain (LEDG-02 leg 2; a hook of this shape observed a total of 50 against an opening 100 and compiled clean). Read the journal after the call instead" \
+    "$CALLBACK_PATTERN" "$BOOKS_CODE"
+
+# 7b. No shared mutability in the ledger.
+#
+#     The clippy entries from task 2 cover all of these crate-wide EXCEPT
+#     RefCell and Arc, which the clean tree cannot carry (see the comment in
+#     clippy.toml). This guard is what covers those two inside the ledger, and
+#     it also catches an alias or a re-export that a type-path lint cannot see.
+SHARED_MUT_PATTERN='RefCell|(^|[^A-Za-z0-9_])Cell[<:]|UnsafeCell|OnceCell|LazyCell|(^|[^A-Za-z0-9_])Rc[<:]|(^|[^A-Za-z0-9_])Arc[<:]|Mutex|RwLock|OnceLock'
+assert_fires 7b "$SHARED_MUT_PATTERN" 10 '    balances: RefCell<Vec<Money>>,
+    counter: Cell<u32>,
+    raw: UnsafeCell<Money>,
+    memo: OnceCell<Money>,
+    memo: LazyCell<Money>,
+    owner: Rc<Books>,
+    owner: Arc<Books>,
+    guard: Mutex<Books>,
+    guard: RwLock<Books>,
+    memo: OnceLock<Money>,'
+assert_ignores 7b "$SHARED_MUT_PATTERN" '    household_cash: Vec<Money>,
+    let cells = 3;
+    fn cash_at(&self, slot: AccountSlot) -> Money {'
+assert_absent_in "guard 7b: the ledger names a shared-mutability or reference-counted wrapper, which hands out a mid-transaction view through a shared reference (LEDG-02 leg 3). The books dissolve the two-mutable-borrows problem by having one owner, not by sharing one" \
+    "$SHARED_MUT_PATTERN" "$BOOKS_CODE"
+
+# 7c. The one permitted shared-mutability site, and the one that has none.
+#
+#     This is the guard clippy.toml points at for the two types the clean tree
+#     cannot ban. It is STRONGER than a books-only rule: a new use anywhere in
+#     the crate has to be argued for rather than merely not noticed.
+#
+#     ITS TWO SCOPE EDGES, stated here because a future reader deciding whether
+#     it is enough must find both rather than infer equivalence:
+#       - STRONGER than the lint entry it substitutes for, because a source grep
+#         catches a type alias or a re-export a type-path lint cannot see.
+#       - NARROWER, because it searches src/ only, while a clippy.toml entry
+#         under --all-targets would also have reached tests/ and benches/.
+set +e
+REFCELL_FILES=$(grep -rlE 'RefCell' -- "${SRC_FILES[@]}" | sort | tr '\n' ' ')
+GREP_STATUS=$?
+set -e
+if [ "$GREP_STATUS" -gt 1 ]; then
+    fail "guard 7c: could not search for RefCell under src/ (grep exit $GREP_STATUS)"
+fi
+if [ "$REFCELL_FILES" != "src/rng.rs " ]; then
+    fail "guard 7c: RefCell appears under src/ in [$REFCELL_FILES] — expected exactly src/rng.rs, the debug-only sub-stream re-entry guard (D-04, T-1-13). This is the one permitted shared-mutability site and it is why clippy.toml cannot carry a RefCell entry; a new one anywhere else is an LEDG-02 hole. NOTE the guard's scope edges: it is stronger than the lint entry it substitutes for (a grep catches an alias or a re-export a type-path lint cannot see) and narrower (it searches src/ only, while the lint under --all-targets would also cover tests/ and benches/)"
+fi
+ARC_PATTERN='(^|[^A-Za-z0-9_])Arc[<:]'
+assert_fires 7c "$ARC_PATTERN" 2 '    owner: Arc<Books>,
+    let books = Arc::new(books);'
+assert_ignores 7c "$ARC_PATTERN" '    let arch = 3;
+    fn march(&self) {}'
+assert_absent "guard 7c: Arc is named under src/. clippy.toml cannot ban it — proptest's prop_oneof! expands to code naming it in tests/ — so this grep is the whole of its enforcement, and the simulation is single-threaded (CORE-04)" \
+    -rnE "$ARC_PATTERN" -- "${SRC_FILES[@]}"
+
+# 7d. No compiled-out invariants (LEDG-10, ROADMAP criterion 4 read literally).
+#
+#     An invariant that a build profile compiles out is not an invariant of the
+#     binary that produced a run. Searched over the RAW files, comments
+#     included, on the same terms as the float-name rule in tests/numeric_det.rs:
+#     the way to say "this is not a debug_assert" in a doc comment is to not
+#     write the token.
+#
+#     The pattern must NOT match `cfg(test)`. That is a DIFFERENT predicate and
+#     it is what plan 02-05's fault-injection vocabulary legitimately uses, so
+#     the permitted fixture below asserts the distinction explicitly rather than
+#     leaving it to be inferred from the pattern.
+COMPILED_OUT_PATTERN='debug_assert'
+assert_fires 7d "$COMPILED_OUT_PATTERN" 3 '        debug_assert!(self.cash_residual_cents == 0);
+        debug_assert_eq!(books.total_money(), opening);
+    #[cfg(debug_assertions)]'
+assert_ignores 7d "$COMPILED_OUT_PATTERN" '#[cfg(test)]
+impl Books {
+    #[cfg(test)]
+    mod corrupt {'
+assert_absent "guard 7d: a ledger module names the debug-only assertion vocabulary. An invariant a build profile can compile out is not an invariant of the binary that produced a run (LEDG-10). Note that cfg(test) is a different predicate and is permitted — the corruption vocabulary uses it" \
+    -nE "$COMPILED_OUT_PATTERN" "$BOOKS_SRC" "$INVARIANTS_SRC"
+
+# 7e. One read site for the liveness gate.
+#
+#     A second read would put the configuration back on a per-tick path and
+#     reintroduce the scattered conditional the check-set-at-construction design
+#     exists to remove.
+#
+#     Counted as reads of the KEY — the qualified field access — and not as
+#     occurrences of the bare identifier. The local binding the one read site
+#     initialises is used again a few lines later to filter the check table, and
+#     that use is the design working rather than a second read. Line comments
+#     are stripped first, so a doc comment naming the key neither satisfies nor
+#     breaks the count.
+set +e
+GATE_FILES=$(grep -rlE 'liveness_enabled' -- "${SRC_FILES[@]}" | sort | tr '\n' ' ')
+GREP_STATUS=$?
+set -e
+if [ "$GREP_STATUS" -gt 1 ]; then
+    fail "guard 7e: could not search for the liveness key under src/ (grep exit $GREP_STATUS)"
+fi
+if [ "$GATE_FILES" != "src/config.rs src/invariants.rs " ]; then
+    fail "guard 7e: the liveness key is named under src/ in [$GATE_FILES] — expected exactly src/config.rs (where it is declared) and src/invariants.rs (where it is read)"
+fi
+GATE_READ_PATTERN='\.liveness_enabled'
+assert_fires 7e "$GATE_READ_PATTERN" 2 '        let enabled = params.invariants.liveness_enabled;
+        if params.invariants.liveness_enabled { }'
+assert_ignores 7e "$GATE_READ_PATTERN" '        let liveness_enabled = true;
+        .filter(|(id, _, _)| liveness_enabled || *id != CheckId::Liveness)'
+set +e
+GATE_READS=$(printf '%s\n' "$INVARIANTS_CODE" | grep -cE "$GATE_READ_PATTERN")
+GREP_STATUS=$?
+set -e
+if [ "$GREP_STATUS" -gt 1 ]; then
+    fail "guard 7e: could not count reads of the liveness key (grep exit $GREP_STATUS)"
+fi
+if [ "$GATE_READS" -ne 1 ]; then
+    fail "guard 7e: the liveness key is read $GATE_READS times in the production half of $INVARIANTS_SRC — expected exactly 1. The gate is decided once, when the check set is built; a second read puts the configuration back on the per-tick path"
+fi
+
+# 7f. Only the ledger writes a balance (LEDG-01).
+#
+#     The first half is a POSITIVE property about where a balance may be
+#     written, and it is the half that carries the weight in this phase. The
+#     second half — no function named set_cash anywhere under src/ — is the
+#     WEAKER of the two: the agent types it is nominally about do not exist
+#     until Phase 3, so it is a guard over a set that cannot yet contain the
+#     thing it forbids.
+#
+#     THE INHERITED OBLIGATION IS **ROADMAP PHASE 3 SUCCESS CRITERION 7**, where
+#     plan 02-01 recorded it: the commit that introduces `Household` and `Firm`
+#     must extend this guard to name them. A reader planning Phase 3 reads the
+#     roadmap criteria and never greps a lint script, which is why the
+#     obligation lives there and is only pointed at from here.
+mapfile -t NON_LEDGER_SRC < <(git ls-files -- 'src/*.rs' | grep -v "^${BOOKS_SRC}$")
+if [ "${#NON_LEDGER_SRC[@]}" -eq 0 ]; then
+    fail "guard 7f: found no tracked Rust sources under src/ other than $BOOKS_SRC — the search set is empty and the guard would pass trivially"
+fi
+BALANCE_PATTERN='\b(household_cash|firm_cash|household_stock|firm_stock|firm_headcount)\b'
+assert_fires 7f "$BALANCE_PATTERN" 5 '    self.household_cash[index] = value;
+    firm.firm_cash += wage;
+    let held = self.household_stock[index];
+    self.firm_stock[index] = units;
+    self.firm_headcount[index] = count;'
+assert_ignores 7f "$BALANCE_PATTERN" '    let total = books.firm_cash_total();
+    let n = books.total_headcount();'
+assert_absent "guard 7f: a file outside the ledger names a private balance identifier. Only $BOOKS_SRC may write a balance (LEDG-01). ROADMAP Phase 3 success criterion 7 carries the inherited obligation: the commit that introduces Household and Firm must extend this guard to name them" \
+    -nE "$BALANCE_PATTERN" -- "${NON_LEDGER_SRC[@]}"
+SET_CASH_PATTERN='fn[[:space:]]+set_cash[[:space:]]*[(<]'
+assert_fires 7f-set_cash "$SET_CASH_PATTERN" 2 '    pub fn set_cash(&mut self, who: Account, value: Money) {}
+    fn set_cash<T>(&mut self, value: T) {}'
+assert_ignores 7f-set_cash "$SET_CASH_PATTERN" '    pub fn set_headcount(&mut self, slot: FirmSlot, count: u32) -> Option<u32> {
+    fn write_cash(&mut self, slot: AccountSlot, value: Money) {'
+assert_absent "guard 7f: a cash setter is declared under src/. The books own the quantity; there is nothing for an agent to set (LEDG-01). This is the weaker half of 7f — the types it is about arrive in Phase 3, see ROADMAP Phase 3 success criterion 7" \
+    -rnE "$SET_CASH_PATTERN" -- "${SRC_FILES[@]}"
+
+# 7g. No accessor hands out the mutation point.
+#
+#     A function returning a mutable reference gives the caller the very
+#     mutation point transfer and the three goods operations exist to
+#     monopolise, and NO search for a setter NAME would find it. This guard is
+#     on the return type, deliberately. Line comments are stripped first so the
+#     doc comment stating the rule does not trip it.
+MUT_RETURN_PATTERN='->.*&[^,;)]*mut[[:space:]]'
+assert_fires 7g "$MUT_RETURN_PATTERN" 3 '    pub fn cash_mut(&mut self, who: Account) -> &mut Money { }
+    pub fn journal_mut(&mut self) -> Option<&mut Vec<Posting>> { }
+    pub fn slot_mut(&mut self) -> &'"'"'a mut Money { }'
+assert_ignores 7g "$MUT_RETURN_PATTERN" '    pub fn journal(&self) -> &[Posting] {
+    fn write_cash(&mut self, slot: AccountSlot, value: Money) {
+    pub fn set_headcount(&mut self, slot: FirmSlot, count: u32) -> Option<u32> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'"'"'_>) -> std::fmt::Result {'
+assert_absent_in "guard 7g: a function in the ledger returns a mutable reference, handing the caller the mutation point the transfer exists to monopolise (LEDG-01, LEDG-02). No search for a setter name would find this, which is why the guard is on the return type" \
+    "$MUT_RETURN_PATTERN" "$BOOKS_CODE"
+
+# 7h. No environment in a halt message.
+#
+#     A violation's rendered form reaches standard error and is read beside a
+#     diffed log. A path, a host name, a wall-clock reading or a process
+#     identifier in it breaks the determinism rule before it is an
+#     information-disclosure question (TICK-06, T-02-39).
+#
+#     The runtime half of this rule is the no-path assertion in plan 02-05's
+#     message tests; this is the source half, and neither is sufficient alone.
+#     Scoped to the production half of the file: the unit-test modules below
+#     legitimately load the shipped configuration from a path.
+ENVIRONMENT_PATTERN='env::|env!|(^|[^A-Za-z0-9_])Path(Buf)?[^A-Za-z0-9_]|SystemTime|Instant|std::process'
+assert_fires 7h "$ENVIRONMENT_PATTERN" 7 '        let home = std::env::var("HOME");
+        let dir = env!("CARGO_MANIFEST_DIR");
+        let p = Path::new("/tmp");
+        let p: PathBuf = dir.into();
+        let now = SystemTime::now();
+        let t = Instant::now();
+        let pid = std::process::id();'
+assert_ignores 7h "$ENVIRONMENT_PATTERN" '    let path_of_least_resistance = 1;
+    let instant = 1;
+    write!(f, "tick {tick}: {posting}")'
+assert_absent_in "guard 7h: the violation module names a path, clock or process type. A halt message carries integers and identities only — a wall-clock reading or a path in it breaks determinism before it is an information-disclosure question (TICK-06)" \
+    "$ENVIRONMENT_PATTERN" "$INVARIANTS_PRODUCTION"
+
+echo "  check 7: eight source guards (7a callbacks, 7b/7c shared mutability, 7d compiled-out invariants, 7e one gate read, 7f/7g balance writes, 7h halt-message environment), each proved to fire on a hazard fixture first"
+
+echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, both compile-fail probes are refused with the exact diagnostic they name, and eight source guards are silent on a tree each of them was first watched firing on"
