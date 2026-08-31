@@ -29,9 +29,9 @@
 
 - [ ] **LEDG-01**: A central `Books` module owns every cent and every goods unit; `Household` and `Firm` hold no balance fields and expose no `set_cash`
 - [ ] **LEDG-02**: `transfer()` is the only cash-mutation point and is atomic — the books are never observable mid-transaction
-- [ ] **LEDG-03**: `Money::split` distributes any remainder deterministically, and callers subtract the amount actually transferred
-- [ ] **LEDG-04**: Money conservation is checked every tick in release builds against the initial money stock, exactly
-- [ ] **LEDG-05**: Goods conservation is checked every tick: produced minus consumed equals inventory
+- [x] **LEDG-03**: `Money::split` distributes any remainder deterministically, and callers subtract the amount actually transferred
+- [x] **LEDG-04**: Money conservation is checked every tick in release builds against the initial money stock, exactly
+- [x] **LEDG-05**: Goods conservation is checked every tick: produced minus consumed equals inventory
 - [x] **LEDG-06**: Non-negativity is checked every tick across cash, inventory and headcount
 - [x] **LEDG-07**: Zero-sum trade is checked: every sale moves units one way and equal cash the other
 - [x] **LEDG-08**: A liveness invariant asserts transactions-per-tick is greater than zero, closing the "money conserves because nothing trades" degenerate pass
@@ -205,9 +205,9 @@ Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no dup
 | CORE-11 | Phase 1 | Complete |
 | LEDG-01 | Phase 2 | Pending |
 | LEDG-02 | Phase 2 | Pending |
-| LEDG-03 | Phase 2 | Pending |
-| LEDG-04 | Phase 2 | Pending |
-| LEDG-05 | Phase 2 | Pending |
+| LEDG-03 | Phase 2 | Complete |
+| LEDG-04 | Phase 2 | Complete |
+| LEDG-05 | Phase 2 | Complete |
 | LEDG-06 | Phase 2 | Complete |
 | LEDG-07 | Phase 2 | Complete |
 | LEDG-08 | Phase 2 | Complete |
