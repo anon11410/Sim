@@ -59,6 +59,15 @@ CFG_PROBE_DST="tests/_cfg_test_probe.rs"
 BOOKS_SRC="src/books.rs"
 INVARIANTS_SRC="src/invariants.rs"
 
+# The three modules plan 03-02 added to the halt path. The first two can carry
+# or render a violation and hold no filesystem path, so guard 7h's full pattern
+# reaches them unchanged. The third writes every diffed byte and holds a path by
+# construction, so guard 7h-log covers it with one alternative dropped — see the
+# comment above that clause for why the narrowing is bounded rather than free.
+PHASES_SRC="src/phases.rs"
+WORLD_SRC="src/world.rs"
+LOG_SRC="src/log.rs"
+
 fail() {
     echo "FAIL: $*" >&2
     exit 1
@@ -132,7 +141,8 @@ assert_ignores() {
 }
 
 for f in "$PROBE_SRC" "$HAZARD_SRC" "$BORROW_PROBE_SRC" "$CFG_PROBE_SRC" \
-         "$BOOKS_SRC" "$INVARIANTS_SRC" clippy.toml; do
+         "$BOOKS_SRC" "$INVARIANTS_SRC" "$PHASES_SRC" "$WORLD_SRC" "$LOG_SRC" \
+         clippy.toml; do
     [ -f "$f" ] || fail "required input $f is missing"
     [ -s "$f" ] || fail "required input $f is empty — a guard over an empty file passes trivially"
 done
@@ -398,6 +408,22 @@ echo "  check 6: the fault-injection vocabulary is refused from tests/ with E059
 # that shipped with a pattern anchored on the FIRST argument of an `allow(...)`,
 # blind to `#[allow(dead_code, clippy::disallowed_methods)]` — had no proof that
 # it fired at all.
+#
+# WHAT COUNTS AS A GUARD, since the number appears in this script's own output
+# and two plans in one phase both had to decide it. A guard is COUNTED when a
+# requirement or a roadmap criterion names it as an obligation of its own.
+# Everything else is a CLAUSE of a guard that already exists, and clauses are
+# not counted however much work they do.
+#
+#   counted:     `7f-agents`. ROADMAP Phase 3 criterion 7 is about it — the
+#                agent types hold no balance — so it answers for itself.
+#   not counted: the cash-setter clause of 7f, and `7h-log` below. Neither has
+#                a requirement of its own; each narrows or extends the guard it
+#                sits under, and each is proved by its own fixtures regardless.
+#
+# So the number does not move when a clause is added, and a reader comparing
+# this script against a plan does not have to reconstruct the rule from the
+# arithmetic. It moves only when a requirement or a criterion arrives.
 
 # Absence over content held in a variable, so a guard can search a file with its
 # line comments stripped or its test modules removed and still report real line
@@ -751,13 +777,33 @@ assert_absent_in "guard 7g: a function in the ledger returns a mutable reference
 #     the outer half of the string and leaves the inner half unguarded, which is
 #     where roughly half of every halt message is actually rendered.
 #
+#     THE RULE, PLAINLY, NOW THAT THERE ARE TWO PATTERNS. The FULL pattern below
+#     applies to every module that can render a halt message: the two ledger
+#     modules, plus the pipeline and the agent module plan 03-02 added. The
+#     NARROWED pattern of guard 7h-log applies to the one module whose job is to
+#     hold a path, and it is narrower in exactly ONE alternative — the path type
+#     — and only for as long as that module renders no violation at all. That
+#     last condition is asserted, not assumed; see 7h-log.
+#
+#     WHY THE PIPELINE AND AGENT MODULES JOINED THE FULL SET. Both can carry a
+#     violation to the caller that renders it, and neither holds a filesystem
+#     path, so the full pattern reaches them unchanged. Without them, a
+#     violation rendered through a NEW implementation in either would put a
+#     path, a clock reading or a process identifier into a halt message with
+#     nothing watching (T-03-28) — the source half of TICK-06, whose runtime
+#     half is the stderr assertion in tests/determinism.rs.
+#
 #     A NOTE ON WHY THIS GREP IS THE WHOLE ENFORCEMENT for the process id.
 #     `std::process::id` is not in clippy.toml's disallowed-methods, and adding
 #     it makes the clean tree fail check 1: tests/config_strict.rs:275 and
-#     tests/tracer_end_to_end.rs:21 both call it to build a unique temporary
+#     tests/tracer_end_to_end.rs:33 both call it to build a unique temporary
 #     path, which is legitimate test scaffolding and neither on the behaviour
 #     path nor in a halt message. Verified by adding the entry — `error: use of
 #     a disallowed method `std::process::id` --> tests/config_strict.rs:275`.
+#     (The second line reference read :21 until plan 03-06 remeasured it; plan
+#     03-02's edits to that file moved the call, and a stale citation in a
+#     comment explaining why a lint entry was DECLINED is how the reasoning
+#     stops being checkable.)
 #     Check 4b forbids the `#[allow(...)]` that would silence it, so there is no
 #     legal escape. Same class of exclusion as the RefCell and Arc entries
 #     clippy.toml documents, and handled the same way: the lint entry is
@@ -774,10 +820,68 @@ assert_ignores 7h "$ENVIRONMENT_PATTERN" '    let path_of_least_resistance = 1;
     let instant = 1;
     write!(f, "tick {tick}: {posting}")'
 BOOKS_PRODUCTION=$(production_source "$BOOKS_SRC")
-[ -n "$BOOKS_PRODUCTION" ] || fail "guard 7h: the ledger's production half is empty — a guard over an empty set passes trivially"
-assert_absent_in "guard 7h: the ledger or the violation module names a path, clock or process type. A halt message carries integers and identities only — a wall-clock reading, a process id or a path in it breaks determinism before it is an information-disclosure question (TICK-06). Both files are searched because a violation renders its posting through impl Display for Posting, which lives in $BOOKS_SRC" \
+PHASES_PRODUCTION=$(production_source "$PHASES_SRC")
+WORLD_PRODUCTION=$(production_source "$WORLD_SRC")
+for pair in "$BOOKS_SRC:$BOOKS_PRODUCTION" "$PHASES_SRC:$PHASES_PRODUCTION" "$WORLD_SRC:$WORLD_PRODUCTION"; do
+    [ -n "${pair#*:}" ] || fail "guard 7h: the production half of ${pair%%:*} is empty — a guard over an empty set passes trivially"
+done
+assert_absent_in "guard 7h: one of the four modules that can render a halt message ($INVARIANTS_SRC, $BOOKS_SRC, $PHASES_SRC, $WORLD_SRC) names a path, clock or process type. A halt message carries integers and identities only — a wall-clock reading, a process id or a path in it breaks determinism before it is an information-disclosure question (TICK-06). The two ledger modules are both searched because a violation renders its posting through impl Display for Posting, which lives in $BOOKS_SRC; the other two joined the set because either can carry a violation to the code that renders it (T-03-28)" \
     "$ENVIRONMENT_PATTERN" "$INVARIANTS_PRODUCTION
-$BOOKS_PRODUCTION"
+$BOOKS_PRODUCTION
+$PHASES_PRODUCTION
+$WORLD_PRODUCTION"
+
+# 7h-log. The same rule for the module that legitimately holds a path — narrowed
+#         in exactly one alternative, and bounded so the narrowing cannot widen.
+#
+#         A CLAUSE OF 7h, not a guard of its own: no requirement or roadmap
+#         criterion names it, so the count above does not move. See the
+#         counting rule in this check's preamble.
+#
+#         src/log.rs writes every diffed byte, and the run-directory writer
+#         holds a filesystem path because that is its entire job. The full
+#         pattern would block the module outright; applying nothing would leave
+#         the environment unguarded in the one module that touches the disk. So
+#         the narrowed pattern keeps the clock types, the environment accessor,
+#         the environment macro and the process type, and drops ONLY the path
+#         alternative. Diff the two patterns: that one alternative is the whole
+#         difference.
+#
+#         AND THE NARROWING IS BOUNDED. It is legitimate only while no halt
+#         message is rendered in this module — plan 03-02's recorded decision,
+#         which declined a violation record in the log module for exactly this
+#         reason: "narrowing a guard to accommodate new code is how a guard
+#         stops meaning anything". The second assertion below is what keeps
+#         those two facts coupled. If a later phase decides to emit a violation
+#         record into the event stream, it fails and puts the decision back in
+#         front of a human instead of the hole quietly widening (T-03-29).
+NARROWED_ENVIRONMENT_PATTERN='env::|env!|SystemTime|Instant|std::process'
+assert_fires 7h-log "$NARROWED_ENVIRONMENT_PATTERN" 5 '        let home = std::env::var("HOME");
+        let dir = env!("CARGO_MANIFEST_DIR");
+        let now = SystemTime::now();
+        let t = Instant::now();
+        let pid = std::process::id();'
+assert_ignores 7h-log "$NARROWED_ENVIRONMENT_PATTERN" '        let p = Path::new("/tmp");
+        pub fn new(dir: &Path) -> io::Result<RunWriter> {
+        let p: PathBuf = base.join("ticks.csv");
+        use std::path::Path;'
+LOG_PRODUCTION=$(production_source "$LOG_SRC")
+[ -n "$LOG_PRODUCTION" ] || fail "guard 7h-log: the production half of $LOG_SRC is empty — a guard over an empty set passes trivially"
+assert_absent_in "guard 7h-log: $LOG_SRC names a clock, the environment or the process type. This module is exempt from guard 7h's PATH alternative only — the run-directory writer holds a path by construction — and from nothing else (TICK-06)" \
+    "$NARROWED_ENVIRONMENT_PATTERN" "$LOG_PRODUCTION"
+
+# The bound on that narrowing. Line comments stripped first, so a doc comment
+# stating this very rule does not trip it — the same treatment guards 7d and 7g
+# give their own patterns.
+VIOLATION_TYPE_PATTERN='\bViolation\b'
+assert_fires 7h-log "$VIOLATION_TYPE_PATTERN" 2 '    fn render(v: &Violation) -> String {
+        Violation::Conservation { tick, .. } => {}'
+assert_ignores 7h-log "$VIOLATION_TYPE_PATTERN" '        let violations = 0;
+        struct ViolationCount(u32);
+        fn invariant_violations() -> u32 { 0 }'
+LOG_PRODUCTION_CODE=$(printf '%s\n' "$LOG_PRODUCTION" | sed 's://.*::')
+assert_absent_in "guard 7h-log: $LOG_SRC renders or names a Violation, and guard 7h-log's narrowed pattern is only honest while it does not. Plan 03-02 DECIDED to keep the halt message out of the module that holds a filesystem path, and this assertion is what couples that decision to the narrowing it justifies. If emitting a violation record here is now deliberate, that decision has to be reopened — widen the pattern back to guard 7h's, or move the rendering out (T-03-29)" \
+    "$VIOLATION_TYPE_PATTERN" "$LOG_PRODUCTION_CODE"
 
 
 # 7i. Every fault-injection method is behind the test gate (LEDG-10).
@@ -833,6 +937,6 @@ if [ "$PROBE_CALLS" -ne "$CORRUPT_COUNT" ]; then
     fail "guard 7j: $CFG_PROBE_SRC calls $PROBE_CALLS corruption methods but $BOOKS_SRC declares $CORRUPT_COUNT. Check 6's E0599 assertion only covers the methods the probe names, so an unnamed one could leave the #[cfg(test)] block with check 6 still reporting success"
 fi
 
-echo "  check 7: eleven source guards (7a callbacks, 7b/7c shared mutability, 7d compiled-out invariants, 7e one gate read, 7f/7f-agents/7g balance writes, 7h halt-message environment, 7i/7j the fault-injection gate), each proved to fire on a hazard fixture first"
+echo "  check 7: eleven source guards (7a callbacks, 7b/7c shared mutability, 7d compiled-out invariants, 7e one gate read, 7f/7f-agents/7g balance writes, 7h halt-message environment across all four modules that can render one — $INVARIANTS_SRC, $BOOKS_SRC, $PHASES_SRC, $WORLD_SRC — with clause 7h-log covering $LOG_SRC under a pattern narrowed in the path alternative alone and bounded by an assertion that it renders no Violation, 7i/7j the fault-injection gate), each proved to fire on a hazard fixture first"
 
-echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, both compile-fail probes are refused with the exact diagnostic they name, and eleven source guards are silent on a tree each of them was first watched firing on"
+echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, both compile-fail probes are refused with the exact diagnostic they name, and eleven source guards are silent on a tree each of them was first watched firing on — 7h over the four halt-message modules, its 7h-log clause over the path-holding writer"
