@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Primitives and the Determinism Spine
 status: executing
-stopped_at: Completed 01-06-PLAN.md
-last_updated: "2026-08-31T00:03:07.069Z"
+stopped_at: Completed 01-08-PLAN.md
+last_updated: "2026-08-31T00:14:13.632Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 01 execution started
-state_head: 2c069c6998c4119216a8556d679c05fda8057f7f
+state_head: e726b3274cc0bc990e6a5a59d2d2439e65488697
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 8
-  completed_plans: 6
+  completed_plans: 7
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 01 (Primitives and the Determinism Spine) — EXECUTING
-Plan: 7 of 8
+Plan: 8 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 01 execution started
 
@@ -64,6 +64,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P04 | 10 min | 3 tasks | 3 files |
 | Phase 01 P05 | 10 min | 3 tasks | 6 files |
 | Phase 01 P06 | 4min | 3 tasks | 3 files |
+| Phase 01 P08 | 26 min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,8 @@ Recent decisions affecting current work:
 - [Phase 01]: Config strictness is proved by deletion, not by grep: every_key_is_required removes each of the 41 leaf keys in turn and asserts each is rejected by name (Pitfall 7)
 - [Phase 01]: Ratios and probabilities enter the config as parts-per-million integers; initial_expected_demand stays the single float in the whole configuration (D-11/D-13)
 - [Phase 01]: The config hash is over raw file bytes, proved sensitive to a table reorder and to one comment character, because the comments carry the source grades CORE-11 makes load-bearing
+- [Phase 01]: Grade-B provenance rows are marked UNVERIFIED by grade, not by paper name — the no-silent-upgrade test keys off grade B so the BAM rows are held to the same honesty as the Lengnick rows — Grade B is defined as "an annotated replication citing the paper's table/equation numbers", which IS the unverified condition. Keying the test off the string "Lengnick" would have left the two equally-unread BAM rows free to be upgraded silently.
+- [Phase 01]: 21 config keys are attributed to the baseline-model paper, not the 18 stated in CONTEXT.md D-19 — the counts measure graded-table rows vs config keys and both are correct; Phase 6 works from 21 — One graded row can expand into two config keys (P(price search) / P(rationing search) is one row and two keys), and several graded rows describe rules rather than parameters and have no key at all. The key count is the set a person must actually check. Reconciliation recorded in config/PROVENANCE.md section 2.
 
 ### Pending Todos
 
@@ -107,6 +110,7 @@ None yet.
 - Lengnick Table 1 values are grade B (from an annotated replication, not read from the paper) — verification is an explicit Phase 1 task (CORE-11). It de-risks the widest-sensitivity parameter group in the model.
 - Phases 6, 8 and 11 are research-flagged for `--research-phase` at planning time. Phase 1 carries a light flag (RNG sub-stream keying; `f64` vs `i64` milli-units for `expected_demand`).
 - All initial conditions and the total money stock are unspecified in every source — deliberately deferred to Phase 11, which means Phases 5–10 run on provisional placeholder values.
+- V-4 (Phase 6): the sense of theta=0.75 is contradictory — the graded table reads it as P(firm CONSIDERS a price change) while the shipped key is named price_inaction_prob_ppm, the complementary event. Which reading is right changes price-move frequency threefold. Flagged in config/PROVENANCE.md open item V-4, not corrected from memory per D-20.
 
 ## Deferred Items
 
@@ -133,6 +137,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T00:02:56.759Z
-Stopped at: Completed 01-06-PLAN.md
+Last session: 2026-08-31T00:13:31.310Z
+Stopped at: Completed 01-08-PLAN.md
 Resume file: None

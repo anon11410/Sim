@@ -60,7 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. `cargo clippy` **fails the build** when code introduces a `HashMap`/`HashSet` on a behaviour path or calls one of the 31 non-deterministic `f64` methods; `Cargo.toml` contains no `rayon` and `rust-toolchain.toml` and `Cargo.lock` are committed.
   5. Every config value carries a source-grade annotation (A/B/C/PROJECT), asserted by the annotation test — which names any unannotated key — rather than by review. The second half of CORE-11, that the Lengnick Table 1 values are checked against the published paper with any discrepancy recorded rather than silently adopted, is **gated on Phase 6 per D-19** — primary-source access is egress-blocked here and no phase before 6 consumes the values; until that gate runs the affected rows stand marked `UNVERIFIED` in `config/PROVENANCE.md`. Deferred, not dropped: Phase 1 ships the machinery, the honest marking and the verification procedure.
 
-**Plans**: 6/8 plans executed in 4 waves
+**Plans**: 7/8 plans executed in 4 waves
 Plans:
 **Wave 1**
 
@@ -76,7 +76,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 01-08-PLAN.md — Source-grade provenance, the UNVERIFIED rows and the Phase 6 verification procedure
+- [x] 01-08-PLAN.md — Source-grade provenance, the UNVERIFIED rows and the Phase 6 verification procedure
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -246,7 +246,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Primitives and the Determinism Spine | 6/8 | In Progress|  |
+| 1. Primitives and the Determinism Spine | 7/8 | In Progress|  |
 | 2. Books, Journal and Invariants | 0/TBD | Not started | - |
 | 3. World, Tick Pipeline and Log Seam | 0/TBD | Not started | - |
 | 4. Python Acceptance Harness Skeleton | 0/TBD | Not started | - |
