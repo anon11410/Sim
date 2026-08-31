@@ -267,3 +267,120 @@ fn first_breaking_posting(journal: &[Posting]) -> Option<Posting> {
         .copied()
         .find(|posting| posting.cash_residual_cents != 0)
 }
+
+/// The gate and the construction rule, at unit granularity.
+///
+/// `tests/invariant_halt.rs` proves that the loop aborts; these prove *why*,
+/// and they are what a future change to [`CheckSet::from_params`] trips over
+/// first.
+///
+/// Every violation below is asserted by whole-value equality against a
+/// constructed [`Violation`]. A test that matches a substring of a rendered
+/// message passes when the wrong check fired, when the tick is wrong and when
+/// the named agent is wrong — precisely the class of negative test that passes
+/// for the wrong reason.
+#[cfg(test)]
+mod liveness {
+    use super::*;
+    use std::path::Path;
+
+    use crate::ids::{Account, FirmId, FirmSlot, HouseholdId};
+    use crate::money::Money;
+
+    /// The shipped parameters with only the gate set afterwards.
+    ///
+    /// Loaded through the real deserialisation path rather than hand-written:
+    /// a parameter literal would need updating every time a key is added and
+    /// would drift out of agreement with the shipped file.
+    fn shipped_with_liveness(enabled: bool) -> Params {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
+        let (mut params, _hash) = crate::config::load(&path).expect("the configuration loads");
+        params.invariants.liveness_enabled = enabled;
+        params
+    }
+
+    fn empty_books(enabled: bool) -> (Books, CheckSet) {
+        let params = shipped_with_liveness(enabled);
+        let books = Books::new(&params).expect("the shipped endowment sums to the stock");
+        let checks = CheckSet::from_params(&params);
+        (books, checks)
+    }
+
+    fn move_a_cent(books: &mut Books) {
+        let payer = Account::Household(HouseholdId(0));
+        let payee = Account::Firm(FirmId {
+            slot: FirmSlot(0),
+            generation: 0,
+        });
+        books
+            .transfer(payer, payee, Money::from_cents(1))
+            .expect("an endowed household can pay a cent");
+    }
+
+    #[test]
+    fn the_gate_decides_the_exact_sequence_of_active_checks() {
+        // On the sequence, never on the length: a length assertion passes when
+        // two checks are swapped, and the order is what decides which violation
+        // a caller sees.
+        assert_eq!(
+            CheckSet::from_params(&shipped_with_liveness(true)).active_ids(),
+            vec![CheckId::MoneyConservation, CheckId::Liveness],
+            "with the gate on, liveness runs and runs last"
+        );
+        assert_eq!(
+            CheckSet::from_params(&shipped_with_liveness(false)).active_ids(),
+            vec![CheckId::MoneyConservation],
+            "with the gate off, every check except liveness still runs"
+        );
+    }
+
+    #[test]
+    fn a_tick_that_traded_nothing_fails_only_because_the_gate_is_on() {
+        let (books, on) = empty_books(true);
+        assert_eq!(
+            on.run(&books, 7),
+            Err(Violation::Liveness {
+                tick: 7,
+                counted: 0,
+                required: MINIMUM_TRANSACTIONS_PER_TICK,
+            })
+        );
+
+        // The same books value, checked by the set the gate off produces. The
+        // books are identical; the gate is the only variable.
+        let off = CheckSet::from_params(&shipped_with_liveness(false));
+        assert_eq!(off.run(&books, 7), Ok(()));
+    }
+
+    #[test]
+    fn a_tick_that_moved_a_cent_passes_with_the_gate_on() {
+        // The positive direction, and the thing that stops the check from being
+        // permanently red.
+        let (mut books, checks) = empty_books(true);
+        move_a_cent(&mut books);
+
+        assert_eq!(books.transactions_this_tick(), 1);
+        assert_eq!(checks.run(&books, 0), Ok(()));
+    }
+
+    #[test]
+    fn the_transaction_count_resets_each_tick_so_liveness_is_a_per_tick_property() {
+        // Without the reset, one transfer on tick 0 would satisfy liveness for
+        // the whole decade and the check would prove nothing after tick 0.
+        let (mut books, checks) = empty_books(true);
+        move_a_cent(&mut books);
+        assert_eq!(checks.run(&books, 0), Ok(()));
+
+        books.end_of_tick();
+
+        assert_eq!(books.transactions_this_tick(), 0);
+        assert_eq!(
+            checks.run(&books, 1),
+            Err(Violation::Liveness {
+                tick: 1,
+                counted: 0,
+                required: MINIMUM_TRANSACTIONS_PER_TICK,
+            })
+        );
+    }
+}
