@@ -148,6 +148,11 @@ initial_liquidity_cents = 50000 # CALIBRATED-IN: phase-11
 
 [bankruptcy]
 # Entrant size against the trimmed mean of incumbents: 0.8x, in ppm.
+# OPEN: the SOURCE below cites 0.2 while this ships 0.8, with no derivation
+# recorded. Transcription error, a derived `1 - 0.2` (which would make this
+# grade C, not B), or a misread of the source parameter? NOT resolved from
+# memory, per D-20 -- see PROVENANCE.md item V-3a, to be settled on the same
+# BAM pass as V-3.
 # GRADE: B | SOURCE: BAM `size-replacing-firms` = 0.2, via annotated replication (UNVERIFIED) | CADENCE: none
 entrant_size_ratio_ppm = 800000
 # Entrant price against the market average: 1.26x, in ppm.

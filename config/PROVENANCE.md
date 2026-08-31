@@ -179,6 +179,29 @@ blockers on their own.
 - **V-3 — the BAM rows.** `bankruptcy.entrant_size_ratio_ppm` and
   `bankruptcy.entrant_price_ratio_ppm` come from a different paper (BAM), not from Lengnick, and
   are equally unread. If BAM is to hand, check them on the same pass.
+
+- **V-3a — `entrant_size_ratio_ppm`: the shipped value is not the cited value.** The row states a
+  SOURCE value of **0.2** (`BAM size-replacing-firms = 0.2`) and ships **800000 ppm = 0.8**, with
+  the config annotation reading "Entrant size against the trimmed mean of incumbents: 0.8x". No
+  derivation is recorded anywhere, so exactly one of the following is true and the repository does
+  not currently say which:
+
+  1. the shipped value is a **transcription error** and should be 200000 ppm; or
+  2. the shipped value is **derived** from the source as `1 − 0.2`, in which case the row is grade
+     **C** (derived arithmetic), not grade B, and the derivation belongs in the SOURCE field —
+     exactly as `incumbent_trim_per_tail` already does it ("derived arithmetic — 5% of 20 firms
+     = 1"); or
+  3. `size-replacing-firms` does not mean what the row assumes, and the 0.8 came from elsewhere.
+
+  **This has deliberately not been resolved from model memory** (D-20): picking whichever reading
+  looks plausible is precisely the failure the grading scheme exists to prevent, and the value
+  changes how large every replacement firm enters at. Settle it on the same BAM pass as V-3, then
+  apply section 3 step 3 — write the outcome down, update the config annotation to match, and
+  regrade the row to C if reading 2 is the right one.
+
+  None of the six checks in `tests/provenance.rs` can see this: test 5 checks only that a row
+  *exists* for the key, and test 6 checks only that grade-B rows stay `UNVERIFIED`. It is recorded
+  here because a numeric mismatch that no test can catch is exactly what an open item is for.
 - **V-4 — the sense of θ.** The graded table reads θ = 0.75 as **P(firm considers a price
   change)**, while the config key is named `price_inaction_prob_ppm` — the complementary event.
   One of the two readings is wrong, and which one changes how often prices move by a factor of
