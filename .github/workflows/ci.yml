@@ -70,3 +70,17 @@ jobs:
       # a lint never observed to block has never been shown to work.
       - name: Guard — the lint gate actually blocks (CORE-07, CORE-03 clause (b))
         run: bash tests/lints.sh
+
+      # The same argument as the step above, applied to schema drift. The test
+      # suite asserts that the generated schema MATCHES the committed one; this
+      # step asserts that the drift test would have caught it if it did not, by
+      # swapping two adjacent column entries in the committed artifact and
+      # watching the test block. Running only the first is the failure mode this
+      # phase exists to avoid: a drift test never observed to fail is
+      # indistinguishable from one comparing a file with itself -- which is
+      # precisely what a schema-derive crate would have produced here, since the
+      # generator and the generated file would have been wrong in the same way.
+      # The script restores the artifact under a trap and verifies the restore
+      # against a digest, so a failing run cannot leave a mutated schema behind.
+      - name: Guard — the schema drift test actually fires (TICK-02)
+        run: bash tests/schema_drift_negative.sh
