@@ -544,6 +544,49 @@ impl Books {
 assert_absent "guard 7d: a ledger module names the debug-only assertion vocabulary. An invariant a build profile can compile out is not an invariant of the binary that produced a run (LEDG-10). Note that cfg(test) is a different predicate and is permitted — the corruption vocabulary uses it" \
     -nE "$COMPILED_OUT_PATTERN" "$BOOKS_SRC" "$INVARIANTS_SRC"
 
+#     THE SCOPE ABOVE IS TWO FILES, AND LEDG-10'S CLAIM IS ABOUT THE INVARIANT
+#     PATH. Phase 3 puts the tick loop that calls `CheckSet::run` in a new file
+#     (src/world.rs, per the note at the top of src/books.rs). A Phase 3
+#     `debug_assert!` around that call, or a `#[cfg(debug_assertions)]` on it
+#     for a "fast release run", removes the invariant phase from the binary that
+#     produces the actual run — and `overflow-checks = true` does NOT enable
+#     `debug_assertions`, so the release profile would be silently unchecked.
+#     The two-file list would say nothing.
+#
+#     Guard 7f faced the identical inheritance problem and handled it by
+#     recording the extension as a ROADMAP success criterion. That is the weaker
+#     instrument of the two: it is a promise a future reader has to keep. So the
+#     scope is widened HERE instead, over every tracked source under src/, with
+#     the one legitimate site carved out by file exactly as guard 7c carves out
+#     src/rng.rs for RefCell. A new file that names the vocabulary fails this
+#     guard on the commit that adds it, with no promise to remember.
+#
+#     THE WIDER CLAUSE STRIPS LINE COMMENTS, and the two-file clause above does
+#     not. That difference is deliberate rather than an oversight. For the two
+#     ledger modules the rule is the strict one the float-name rule in
+#     tests/numeric_det.rs uses: the way to say "this is not a debug_assert" in
+#     a doc comment is to not write the token. Across the rest of src/ that
+#     would forbid src/numeric.rs from explaining, in prose, that its finiteness
+#     check is deliberately NOT a `debug_assert!` — which is a comment worth
+#     having. Stripping comments in the wider clause keeps the strict rule where
+#     it is load-bearing and still catches the attribute anywhere.
+DEBUG_GATE_FILES=""
+for src_file in "${SRC_FILES[@]}"; do
+    set +e
+    printf '%s\n' "$(sed 's://.*::' "$src_file")" | grep -qE "$COMPILED_OUT_PATTERN"
+    GREP_STATUS=$?
+    set -e
+    if [ "$GREP_STATUS" -gt 1 ]; then
+        fail "guard 7d: could not search $src_file for the debug-only vocabulary (grep exit $GREP_STATUS)"
+    fi
+    if [ "$GREP_STATUS" -eq 0 ]; then
+        DEBUG_GATE_FILES="$DEBUG_GATE_FILES$src_file "
+    fi
+done
+if [ "$DEBUG_GATE_FILES" != "src/rng.rs " ]; then
+    fail "guard 7d: the debug-only assertion vocabulary appears under src/ in [$DEBUG_GATE_FILES] — expected exactly src/rng.rs (the debug-only sub-stream re-entry guard, D-04, T-1-13). An invariant a build profile can compile out is not an invariant of the binary that produced a run (LEDG-10), and overflow-checks = true does not enable debug_assertions, so a release run would be silently unchecked. This scope covers every tracked source under src/ so that the file Phase 3 adds for the tick loop is guarded on the commit that adds it"
+fi
+
 # 7e. One read site for the liveness gate.
 #
 #     A second read would put the configuration back on a per-tick path and
