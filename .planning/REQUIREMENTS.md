@@ -45,12 +45,12 @@
 - [x] **TICK-02**: The log schema is generated and committed as `schema/schema.json`, which Python reads; schema drift is a test failure
 - [x] **TICK-03**: A per-tick series is written to `ticks.csv` with all money as integer `*_cents` columns
 - [x] **TICK-04**: A per-event stream is written to `events.jsonl` covering bankruptcy, hire, fire and dividend, sufficient to reconstruct any agent's history without re-running
-- [ ] **TICK-05**: `run_meta.json` carries seed, config hash and toolchain version, held separate from the diffed logs
-- [ ] **TICK-06**: Diffed logs contain no wall-clock time, hostname, path or PID
+- [x] **TICK-05**: `run_meta.json` carries seed, config hash and toolchain version, held separate from the diffed logs
+- [x] **TICK-06**: Diffed logs contain no wall-clock time, hostname, path or PID
 - [x] **TICK-07**: Decision provenance is recorded as a joinable flat table (tick, agent, decision type, inputs, outcome), never free text
-- [ ] **TICK-08**: 3,650 empty ticks execute and two runs diff byte-identically before any economic rule exists
-- [ ] **TICK-09**: The same seed produces byte-identical logs, verified both in-process and cross-process
-- [ ] **TICK-10**: A different seed produces different logs, guarding against an accidentally constant RNG
+- [x] **TICK-08**: 3,650 empty ticks execute and two runs diff byte-identically before any economic rule exists
+- [x] **TICK-09**: The same seed produces byte-identical logs, verified both in-process and cross-process
+- [x] **TICK-10**: A different seed produces different logs, guarding against an accidentally constant RNG
 
 ### Python Acceptance Harness
 
@@ -217,12 +217,12 @@ Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no dup
 | TICK-02 | Phase 3 | Complete |
 | TICK-03 | Phase 3 | Complete |
 | TICK-04 | Phase 3 | Complete |
-| TICK-05 | Phase 3 | Pending |
-| TICK-06 | Phase 3 | Pending |
+| TICK-05 | Phase 3 | Complete |
+| TICK-06 | Phase 3 | Complete |
 | TICK-07 | Phase 3 | Complete |
-| TICK-08 | Phase 3 | Pending |
-| TICK-09 | Phase 3 | Pending |
-| TICK-10 | Phase 3 | Pending |
+| TICK-08 | Phase 3 | Complete |
+| TICK-09 | Phase 3 | Complete |
+| TICK-10 | Phase 3 | Complete |
 | HARN-01 | Phase 4 | Pending |
 | HARN-02 | Phase 4 | Pending |
 | HARN-03 | Phase 11 | Pending |

@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 3
 current_phase_name: World, Tick Pipeline and Log Seam
 status: executing
-stopped_at: Completed 03-04-PLAN.md
-last_updated: "2026-08-31T15:25:12.800Z"
+stopped_at: Completed 03-05-PLAN.md
+last_updated: "2026-08-31T15:47:52.623Z"
 last_activity: 2026-08-31
-last_activity_desc: Executed plan 03-03 — the event stream, the provenance table and the run record
-state_head: 76dfa5b4714904c761f88f35348a2e46cf1a4cee
+last_activity_desc: Executed plan 03-05 — reproducibility proved on bytes, the enforced exclusion and the process-level halt
+state_head: 0681979b2d91157b2d2354702786b38db1375f15
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 21
-  completed_plans: 19
+  completed_plans: 20
   percent: 18
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 3 — World, Tick Pipeline and Log Seam
-Plan: 4 of 6 complete (03-01, 03-02, 03-03)
-Status: Executing — waves 1 to 3 done; 03-04 (the generated schema and its drift test) next
-Last activity: 2026-08-31 — Executed plan 03-03
+Plan: 5 of 6 complete (03-01, 03-02, 03-03, 03-04, 03-05)
+Status: Executing — waves 1 to 5 done; 03-06 (the golden run and the guard extensions) next
+Last activity: 2026-08-31 — Executed plan 03-05
 
 Progress: [██░░░░░░░░] 18%
 
@@ -71,6 +71,7 @@ Progress: [██░░░░░░░░] 18%
 | Phase 03 P02 | 30min | 3 tasks | 10 files |
 | Phase 3 P3 | ~25min | 3 tasks | 5 files |
 | Phase 03 P04 | ~20min | 3 tasks | 6 files |
+| Phase 03 P05 | ~10min | 3 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -128,6 +129,9 @@ Recent decisions affecting current work:
 - [Phase 3]: The schema's names come from the emitted text and its types from parsing that same text — no second description of the types anywhere
 - [Phase 3]: The drift test never writes; regeneration is an operator command named in its own failure message
 - [Phase 3]: The float-dtype build check stays a bare grep -cE 'float(64|32)' — pinning the key name and spacing would make a negative check pass vacuously
+- [Phase 3]: 03-05: the process-identifier leak check is NOT a digit substring search — measured 42.0% five-digit coincidence in a real ticks.csv (pid_max 32768), so it would be red on a correct sim two runs in five; covered instead by byte-equality across two processes with asserted-different identifiers, a closed word vocabulary from the schema generator, path separators, and two timestamp byte shapes
+- [Phase 3]: 03-05: a determinism comparison's inputs are asserted non-empty by construction — every read routes through one helper, because two empty files hash equal and the naive build produced exactly that
+- [Phase 3]: 03-05: the diffed set is enumerated from the run directory minus EXCLUDED_FROM_DIFF, and the excluded file is asserted to EXIST — a vacuous exclusion enforces nothing
 
 ### Pending Todos
 
@@ -166,6 +170,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T15:25:04.260Z
-Stopped at: Completed 03-04-PLAN.md
+Last session: 2026-08-31T15:47:51.566Z
+Stopped at: Completed 03-05-PLAN.md
 Resume file: None
