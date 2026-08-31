@@ -22,10 +22,23 @@ fail() {
 #    fixes the compiler whose codegen the logs depend on.
 git ls-files --error-unmatch Cargo.lock rust-toolchain.toml > /dev/null
 
+# The dependency GRAPH, not the manifest. `--edges normal` is the
+# library-and-binary graph: exactly what ships and what the simulation runs on.
+# Computed once here because checks 2 and 4 both search it.
+TREE=$(cargo tree --edges normal)
+
 # 2. No data-parallelism dependency. Thread interleaving is nondeterministic;
 #    the simulation is single-threaded by requirement.
-if grep -Eq '^[[:space:]]*rayon[[:space:]]*=' Cargo.toml; then
-    fail "Cargo.toml declares a data-parallelism dependency (rayon)"
+#
+#    Searched in the graph rather than in Cargo.toml. The previous
+#    line-anchored `^[[:space:]]*rayon[[:space:]]*=` grep matched only the
+#    inline dependency form at the start of a line: it missed the
+#    `[dependencies.rayon]` table form, and — far more importantly — it missed
+#    any TRANSITIVE rayon, which is the realistic way data parallelism enters a
+#    dependency graph. Check 4 below already used the graph for getrandom and
+#    explained why; this check now follows its own neighbour.
+if echo "$TREE" | grep -Eq '(^|[^a-z-])rayon( |$|v)'; then
+    fail "a data-parallelism crate (rayon) is reachable from the behaviour path"
 fi
 
 # 3. No per-machine codegen tuning. `-C target-cpu=native` changes codegen per
@@ -63,13 +76,11 @@ if [ -n "$OFFENDERS" ]; then
     fail "these build-configuration files set target-cpu: $(echo "$OFFENDERS" | tr '\n' ' ')"
 fi
 
-# 4. No OS-entropy crate on the behaviour path. `--edges normal` is the
-#    library-and-binary graph: exactly what ships and what the simulation runs
-#    on. `getrandom` does appear under the proptest DEV-dependency (proptest
-#    seeds its own generator and tempfile names its own directories), and that
-#    is not a path the simulation can reach — asserting over the full tree
-#    would be asserting something false.
-TREE=$(cargo tree --edges normal)
+# 4. No OS-entropy crate on the behaviour path. `getrandom` does appear under
+#    the proptest DEV-dependency (proptest seeds its own generator and tempfile
+#    names its own directories), and that is not a path the simulation can
+#    reach — asserting over the full tree would be asserting something false.
+#    `$TREE` is computed above check 2.
 if echo "$TREE" | grep -q 'getrandom'; then
     fail "an OS-entropy crate (getrandom) is reachable from the behaviour path"
 fi
@@ -79,4 +90,4 @@ if ! grep -Eq '^[[:space:]]*channel[[:space:]]*=[[:space:]]*"1\.94\.1"' rust-too
     fail "rust-toolchain.toml does not pin channel 1.94.1"
 fi
 
-echo "OK: lockfile and toolchain tracked, no data-parallelism dep, no codegen override, no OS-entropy crate on the behaviour path"
+echo "OK: lockfile and toolchain tracked, no data-parallelism crate in the graph, no codegen override, no OS-entropy crate on the behaviour path"
