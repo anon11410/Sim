@@ -946,3 +946,163 @@ fn run_meta_carries_the_three_fields() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// ROADMAP Phase 3 criterion 6: the PROCESS halts, non-zero, naming tick 0.
+// ---------------------------------------------------------------------------
+
+/// The shipped liveness leaf, in its off state.
+///
+/// Anchored between two line terminators so it matches a whole leaf and not a
+/// mention of one inside the comment block above it.
+const LIVENESS_OFF: &str = "\nliveness_enabled = false\n";
+
+/// The same leaf, on.
+const LIVENESS_ON: &str = "\nliveness_enabled = true\n";
+
+/// The built binary, run against the shipped configuration with one leaf moved,
+/// exits one and says why on standard error.
+///
+/// **The process-level half of Phase 2's halt claim.** Phase 2 could prove only
+/// that a tick loop aborts at the right tick, because the phase table and the
+/// binary's loop are this phase's. The criterion is recorded against this phase
+/// so it falls between neither.
+///
+/// **Why tick 0, and why this needs no fault injection.** `Books::new` clears
+/// the endowment postings at construction, precisely so the liveness check
+/// cannot be satisfied by them. Tick 0's journal is therefore empty,
+/// `transactions_this_tick()` is zero, and the check fires on the first tick.
+/// That is Phase 2's construction doing the work: the liveness violation is the
+/// one violation reachable through the ledger's public API, so nothing here
+/// goes near the corruption vocabulary the lint gate keeps out of this
+/// directory.
+///
+/// **Why the override is a file and not an environment variable.** An
+/// environment variable is an input present in neither the committed
+/// configuration nor the run's own record, so a run configured that way cannot
+/// be reproduced from the repository. This is a project prohibition, not a
+/// preference, and `tests/lints.sh` is not what enforces it here — the plan's
+/// own check greps this file for one.
+///
+/// **Why the override is textual and not a re-serialisation.** Round-tripping
+/// the parsed parameters through the serialiser works and strips every comment,
+/// and the comments carry the source grades `tests/provenance.rs` makes
+/// load-bearing. The count assertion below is the point of the exercise: with a
+/// reworded configuration the substitution would be a silent no-op, the binary
+/// would complete its decade, this test would pass — and it would be passing as
+/// a second copy of criterion 1 while claiming to prove criterion 6.
+#[test]
+fn the_binary_halts_on_a_liveness_violation_at_tick_zero() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let shipped = String::from_utf8(read_nonempty(Path::new(CONFIG)))
+        .expect("the shipped configuration is text");
+
+    assert_eq!(
+        shipped.matches(LIVENESS_OFF).count(),
+        1,
+        "expected exactly one liveness_enabled leaf to override; the shipped \
+         configuration was reworded, and this substitution would have been a \
+         silent no-op that left the gate off",
+    );
+    let overridden = shipped.replace(LIVENESS_OFF, LIVENESS_ON);
+    assert_eq!(
+        overridden.matches(LIVENESS_ON).count(),
+        1,
+        "the override did not put the leaf back exactly once",
+    );
+    assert!(
+        !overridden.contains(LIVENESS_OFF),
+        "the leaf is still off after the override",
+    );
+
+    // The substitution moved ONE leaf and nothing else. The grade comments are
+    // what distinguish a textual override from a re-serialisation, and
+    // `tests/provenance.rs` makes them load-bearing.
+    assert_eq!(
+        overridden.lines().count(),
+        shipped.lines().count(),
+        "the override changed the shape of the file, not one leaf in it",
+    );
+    assert_eq!(
+        overridden.matches("# GRADE:").count(),
+        shipped.matches("# GRADE:").count(),
+        "the override lost a source grade — it was a re-serialisation, not a \
+         textual substitution",
+    );
+
+    let config = root.path().join("liveness_on.toml");
+    std::fs::write(&config, &overridden).expect("the overridden configuration writes");
+    let out = root.path().join("run");
+
+    let assertion = assert_cmd::Command::cargo_bin("sim")
+        .expect("the sim binary is built for this test run")
+        .args([
+            "--config",
+            config.to_str().expect("the temporary path is text"),
+        ])
+        .arg("--out")
+        .arg(&out)
+        .assert()
+        .failure()
+        .code(1);
+
+    let stderr =
+        String::from_utf8(assertion.get_output().stderr.clone()).expect("the halt message is text");
+    assert!(
+        stderr.contains("tick 0"),
+        "the halt does not name tick 0: {stderr}",
+    );
+    assert!(
+        stderr.contains("liveness"),
+        "the halt does not name the check that fired: {stderr}",
+    );
+
+    // TICK-06 at the MESSAGE level. The source guard over the modules that
+    // render this string is the static half; neither half is sufficient alone.
+    // Both the configuration and the output directory live under this root, so
+    // one search covers the two paths this run was given.
+    let temporary = root.path().to_str().expect("the temporary path is text");
+    assert!(
+        !stderr.contains(temporary),
+        "the halt message carries a path: {stderr}",
+    );
+    assert!(
+        !stderr.contains(REPO_ROOT),
+        "the halt message carries this repository's path: {stderr}",
+    );
+
+    // A halted run is self-describing: its own record says how far it got and
+    // that it ended in a violation.
+    let meta = run_meta(&out);
+    assert_eq!(
+        meta.get("ticks_completed").and_then(Value::as_u64),
+        Some(0),
+        "the run record does not report a halt before the first tick completed",
+    );
+    assert_eq!(
+        meta.get("exit").and_then(Value::as_str),
+        Some("violation"),
+        "the run record does not report a violation",
+    );
+
+    // What the eager header buys: a halted run leaves an OPENABLE tick file
+    // rather than a zero-byte one the analysis side refuses.
+    let text =
+        String::from_utf8(read_nonempty(&out.join(TICKS_FILE))).expect("the tick file is text");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines.len(),
+        1,
+        "the halted run wrote {} lines; the failing tick is aborted at the \
+         invariant phase, which runs before the log phase, so no row is due",
+        lines.len(),
+    );
+    assert_eq!(
+        lines[0]
+            .split(',')
+            .map(str::to_owned)
+            .collect::<Vec<String>>(),
+        ticks_header(),
+        "the halted run's one line is not the header",
+    );
+}
