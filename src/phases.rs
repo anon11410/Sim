@@ -38,7 +38,7 @@
 
 use crate::books::Books;
 use crate::invariants::{CheckSet, Violation};
-use crate::log::{Sink, TickRow};
+use crate::log::{Sink, TickRow, endowment_events};
 use crate::rng::{Purpose, Rngs};
 use crate::world::World;
 
@@ -247,7 +247,22 @@ pub fn tick(ctx: &mut Ctx<'_>) -> Result<(), Violation> {
 /// **before** it inspects this result: on the halt path the ticks that led to
 /// the violation are exactly the diagnostic evidence, and terminating the
 /// process runs no destructors.
+///
+/// **Setup emits the opening endowment before the first tick** (TICK-04). It
+/// happens here, in the one function both the library path and the binary path
+/// go through, so neither can drift from the other and an in-process run leaves
+/// the same event stream a run on disk does. `Books::new` clears the endowment
+/// postings before tick 0 — so the liveness check cannot pass on them — and the
+/// records are therefore read from the ledger's accessors, exactly as that
+/// constructor's own documentation instructs. Without them a run with no
+/// economics leaves a zero-byte event file, and Phase 4's conservation replay
+/// has no origin row to replay from.
 pub fn run(ctx: &mut Ctx<'_>, ticks: u32) -> Result<(), Violation> {
+    let opening = endowment_events(ctx.books, ctx.world.tick);
+    for event in opening {
+        ctx.sink.event(event);
+    }
+
     for number in 0..ticks {
         ctx.world.tick = number;
         tick(ctx)?;
