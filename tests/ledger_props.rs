@@ -717,26 +717,48 @@ proptest! {
     /// quantities recomputed from the **balances** after every operation
     /// (LEDG-04, LEDG-05).
     ///
-    /// **This is the property that states the design directly.** Everything else
-    /// in this phase rests on the two conservation sources being genuinely
+    /// This is the property that states the design directly. Everything else in
+    /// this phase rests on the two conservation sources being genuinely
     /// independent: `record` advances the residuals from the legs of the posting
     /// it is handed, while the produced and consumed totals and the balance
     /// vectors are advanced from the *arguments* of the operations. That
     /// independence is what makes `check_money` and `check_goods` non-vacuous
-    /// (research Pitfall 9), and it is asserted here rather than assumed.
-    ///
-    /// A change that derived one source from the other — recomputing `produced`
-    /// by walking the journal at check time, or calling `total_money()` inside
-    /// `record` — would leave both conservation checks passing forever while
-    /// comparing a number against itself. It would not leave this property
-    /// meaningful, which is why the comparison is written out on both sides here
-    /// instead of being read off a check's verdict.
+    /// (research Pitfall 9), and it is written out on both sides here rather
+    /// than read off a check's verdict.
     ///
     /// Note what is *not* asserted: that either quantity is zero. Zero is the
     /// conservation claim and lives in
     /// [`total_money_is_conserved_under_any_operation_sequence`] and
     /// [`goods_identity_holds`]. The claim here is weaker and sharper —
     /// **whatever** the books think, the two sources think the same thing.
+    ///
+    /// **What this property cannot catch, and why it is stated anyway.** From
+    /// this file it is structurally `0 == 0`, and an earlier version of this
+    /// comment claimed the opposite. `record` derives `cash_delta` as
+    /// `credit_cents - debit_cents`, and every public operation constructs its
+    /// posting with ONE value on both cash legs — `transfer` writes
+    /// `debit_cents: amount.cents(), credit_cents: amount.cents()`, `exchange`
+    /// the same, `produce` and `consume` write `0`/`0`. So on any sequence an
+    /// ordinary caller can produce, both sides of both comparisons are
+    /// invariantly zero. Replacing `record`'s residual arithmetic with
+    /// `self.cash_residual_cents = self.total_money().cents() -
+    /// self.opening_stock.cents()` — the exact single-source collapse this
+    /// comment used to claim the property would catch — leaves it green. It was
+    /// tried.
+    ///
+    /// Moving either side needs two cash legs that disagree, which needs the
+    /// `pub(crate)` fault-injection vocabulary an integration test cannot reach.
+    /// **The version with teeth is
+    /// `books::tests::the_two_residual_sources_move_apart_when_only_one_of_them
+    /// _is_told`** in `src/books.rs`. It appends postings whose legs disagree
+    /// while touching no balance and no stock, so the two sources part company
+    /// — which they can only do if they are genuinely independent. It was
+    /// mutation-verified against exactly the collapse named above: with
+    /// `record`'s residual computed from `total_money()`, every property in this
+    /// file stays green and that one unit test is the only thing that fails. This is the same shape as
+    /// [`ending_a_tick_leaves_the_residuals_and_the_balances_untouched`] below,
+    /// and it is recorded here for the same reason: a reader should be able to
+    /// tell what a green run of this file did and did not prove.
     #[test]
     fn posting_residuals_agree_with_the_balance_derived_quantities(ops in any_ops()) {
         let (mut books, _checks) = small_books();

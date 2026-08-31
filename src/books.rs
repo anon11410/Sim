@@ -2035,6 +2035,145 @@ mod tests {
     }
 
     #[test]
+    fn the_two_residual_sources_move_apart_when_only_one_of_them_is_told() {
+        // **This test exists because the property it mirrors cannot fail.**
+        // `tests/ledger_props.rs::posting_residuals_agree_with_the_balance_
+        // derived_quantities` asserts the same design over arbitrary operation
+        // sequences and is documented there as the property that states it
+        // directly. From an integration test it is structurally `0 == 0`.
+        //
+        // The reason is the same shape as the tick-boundary residual above.
+        // `record` derives `cash_delta` as `credit_cents - debit_cents`, and
+        // every public operation constructs its posting with ONE value on both
+        // cash legs — `transfer` writes `debit_cents: amount.cents(),
+        // credit_cents: amount.cents()`, `exchange` the same, `produce` and
+        // `consume` write `0`/`0`. `goods_delta` has the same shape. So on any
+        // sequence an ordinary caller can produce, both sides of both
+        // comparisons are invariantly zero and the assertion is `0 == 0`.
+        //
+        // **What has teeth is the two sources being able to DISAGREE.** The
+        // journal residual is not a restatement of the balances; it is what the
+        // postings say, and a posting that says something the balances do not
+        // is exactly the leak `check_money` exists to report. So this test
+        // appends postings whose legs disagree, touching no balance and no
+        // stock, and asserts that the posting-derived residual moves by exactly
+        // what the legs say while the balance-derived one does not move at all.
+        //
+        // Mutation-verified in both build profiles against the single-source
+        // collapse the property's own doc comment names: replacing `record`'s
+        // residual arithmetic with
+        //
+        //     let cash_delta = self.total_money().cents()
+        //         - self.opening_stock.cents()
+        //         - self.cash_residual_cents;
+        //
+        // fails this test and leaves every property in `tests/ledger_props.rs`
+        // green — because that collapse computes the SAME number on the honest
+        // path and on every corruption that moves the balances too.
+        let mut books = Books::new(&shipped()).expect("the shipped endowment sums to the stock");
+
+        // The two sources, named once. The first is accumulated from the legs
+        // of the postings; the second is recomputed from the balance vectors
+        // against the configured opening stock. Neither is derived from the
+        // other, and that is the whole claim.
+        let posting_derived = |books: &Books| books.cash_residual_cents();
+        let balance_derived =
+            |books: &Books| books.total_money().cents() - books.opening_stock().cents();
+
+        assert_eq!(posting_derived(&books), 0, "the books open conserving");
+        assert_eq!(balance_derived(&books), 0);
+
+        // A journal-only over-credit: five hundred cents left the debit account
+        // and five hundred and one arrived, according to the posting. No
+        // balance moved.
+        books.corrupt_appended_posting(Posting {
+            seq: 0,
+            kind: PostingKind::Transfer,
+            debit: household(0),
+            credit: firm(0, 0),
+            debit_cents: 500,
+            credit_cents: 501,
+            good: ONLY_GOOD,
+            units_out: 0,
+            units_in: 0,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+
+        assert_eq!(
+            posting_derived(&books),
+            1,
+            "the postings say a cent was created, and the residual is read off \
+             the legs of the posting rather than off the balances"
+        );
+        assert_eq!(
+            balance_derived(&books),
+            0,
+            "no balance moved, so the balance-derived residual is still zero"
+        );
+        assert_ne!(
+            posting_derived(&books),
+            balance_derived(&books),
+            "the two sources are independent: one can move while the other does \
+             not, which is what makes check_money a comparison rather than a \
+             tautology"
+        );
+
+        // The goods side of the same claim, and it is the same test. A posting
+        // whose unit legs disagree moves the goods residual and touches no
+        // stock vector, so the two goods sources part company too.
+        let stock_before = books.total_stock(ONLY_GOOD);
+        books.corrupt_appended_posting(Posting {
+            seq: 0,
+            kind: PostingKind::Exchange,
+            debit: household(0),
+            credit: firm(0, 0),
+            debit_cents: 400,
+            credit_cents: 400,
+            good: ONLY_GOOD,
+            units_out: 3,
+            units_in: 1,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+
+        assert_eq!(
+            books.goods_residual_units(),
+            2,
+            "three units left and one arrived, so the postings say two units \
+             are unaccounted for"
+        );
+        assert_eq!(
+            books.produced(ONLY_GOOD) - books.consumed(ONLY_GOOD) - books.total_stock(ONLY_GOOD),
+            0,
+            "no stock moved, so the identity recomputed from the fields is \
+             still zero"
+        );
+        assert_eq!(books.total_stock(ONLY_GOOD), stock_before);
+
+        // The complementary direction, on the one corruption that moves the
+        // balances and the journal TOGETHER: there the two sources are required
+        // to agree, and the agreement is on a non-zero number rather than on
+        // zero. `corrupt_recorded_cash` drops a cent — a hundred leaves the
+        // payer, ninety-nine arrives — so both sources move by -1 from where
+        // they were.
+        let posting_before = posting_derived(&books);
+        let balance_before = balance_derived(&books);
+        books.corrupt_recorded_cash(firm(0, 0), household(0), 100, -1);
+
+        assert_eq!(
+            posting_derived(&books),
+            posting_before - 1,
+            "the postings say one more cent is gone"
+        );
+        assert_eq!(
+            balance_derived(&books),
+            balance_before - 1,
+            "and the balances say the same, because this corruption wrote both"
+        );
+    }
+
+    #[test]
     fn a_posting_serialises_with_rendered_addresses_and_integer_amounts() {
         // Phase 3 writes this shape into its event stream; it is pinned here so
         // a change to it is a reviewed diff rather than a silent one.
