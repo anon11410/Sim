@@ -1,0 +1,292 @@
+//! CORE-10 at the artefact level: the shipped config is the whole input, and
+//! not one of its keys can quietly default.
+//!
+//! The load-bearing test here is `every_key_is_required`. ROADMAP criterion 3
+//! names a grep for the serde `default` attribute, and research verified that
+//! grep is necessary but **not sufficient**: an optional field type defaults to
+//! absent with no attribute to find. The only check that actually proves the
+//! requirement is to delete every leaf key in turn and assert each deletion is
+//! rejected by name. The two source assertions at the bottom are the cheap
+//! complement, and they live inside the test binary rather than in a shell
+//! script so they cannot be skipped by running the suite without the linter.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use sim::config::{self, Params};
+
+const CONFIG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/config/baseline.toml");
+
+/// The shipped parameter file, as text.
+fn shipped() -> String {
+    fs::read_to_string(CONFIG).expect("the shipped config must be readable")
+}
+
+/// Every leaf key in `value`, as a full dotted path, in deterministic order.
+///
+/// A leaf is any value that is not a table, so this walks nested tables without
+/// caring how deep the schema happens to be today.
+fn leaf_paths(value: &toml::Value, prefix: &[String], out: &mut Vec<Vec<String>>) {
+    match value {
+        toml::Value::Table(table) => {
+            for (key, child) in table {
+                let mut path = prefix.to_vec();
+                path.push(key.clone());
+                leaf_paths(child, &path, out);
+            }
+        }
+        _ => out.push(prefix.to_vec()),
+    }
+}
+
+/// Delete the leaf at `path` from `value`.
+fn remove_at(value: &mut toml::Value, path: &[String]) {
+    let (leaf, parents) = path.split_last().expect("a leaf path is never empty");
+    let mut cursor = value;
+    for step in parents {
+        cursor = cursor
+            .as_table_mut()
+            .expect("a path step must address a table")
+            .get_mut(step)
+            .expect("a path step must exist");
+    }
+    cursor
+        .as_table_mut()
+        .expect("a leaf's parent must be a table")
+        .remove(leaf)
+        .expect("the leaf must exist");
+}
+
+/// The same document with its tables emitted in reverse order.
+///
+/// Built textually rather than by round-tripping through `toml::Value`, whose
+/// table map re-sorts keys and would undo the reordering.
+fn tables_reversed(raw: &str) -> String {
+    let mut preamble = String::new();
+    let mut blocks: Vec<String> = Vec::new();
+
+    for line in raw.lines() {
+        if line.starts_with('[') {
+            blocks.push(String::new());
+        }
+        match blocks.last_mut() {
+            Some(block) => {
+                block.push_str(line);
+                block.push('\n');
+            }
+            None => {
+                preamble.push_str(line);
+                preamble.push('\n');
+            }
+        }
+    }
+
+    blocks.reverse();
+    let mut out = preamble;
+    for block in blocks {
+        out.push_str(&block);
+    }
+    out
+}
+
+/// The error text of a failed parse, or a panic naming what wrongly succeeded.
+fn parse_error(document: &str) -> String {
+    match toml::from_str::<Params>(document) {
+        Ok(params) => panic!("expected a parse failure, got {params:?}"),
+        Err(error) => error.to_string(),
+    }
+}
+
+/// Every `.rs` file under `dir`, recursively, in sorted path order.
+fn rust_sources(dir: &Path) -> Vec<PathBuf> {
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("cannot read {}: {e}", dir.display()))
+        .map(|entry| entry.expect("cannot read a directory entry").path())
+        .collect();
+    entries.sort();
+
+    let mut sources = Vec::new();
+    for path in entries {
+        if path.is_dir() {
+            sources.extend(rust_sources(&path));
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            sources.push(path);
+        }
+    }
+    sources
+}
+
+// --- The exhaustive proof -------------------------------------------------
+
+#[test]
+fn every_key_is_required() {
+    let raw = shipped();
+    let document: toml::Value =
+        toml::from_str(&raw).expect("the shipped config must parse as TOML");
+
+    let mut paths = Vec::new();
+    leaf_paths(&document, &[], &mut paths);
+    assert!(
+        paths.len() >= 40,
+        "only {} leaf keys found — the schema cannot have been widened",
+        paths.len()
+    );
+
+    for path in &paths {
+        let dotted = path.join(".");
+        let leaf = path.last().expect("a leaf path is never empty");
+
+        let mut mutated = document.clone();
+        remove_at(&mut mutated, path);
+        let text = toml::to_string(&mutated).expect("a pruned document must re-serialise");
+
+        let error = match toml::from_str::<Params>(&text) {
+            Ok(params) => {
+                panic!("`{dotted}` is not required — a hidden default supplied it: {params:?}")
+            }
+            Err(error) => error.to_string(),
+        };
+
+        assert!(
+            error.contains(&format!("missing field `{leaf}`")),
+            "deleting `{dotted}` produced an error that does not name it: {error}"
+        );
+    }
+}
+
+// --- Strictness at the parse boundary -------------------------------------
+
+#[test]
+fn unknown_key_inside_a_table_is_rejected() {
+    // Inside the existing `[sim]` table: the root's own `deny_unknown_fields`
+    // must not be what catches this, or nested strictness is untested.
+    let error = parse_error(&shipped().replace("[sim]\n", "[sim]\nhouseolds = 1\n"));
+    assert!(error.contains("unknown field"), "{error}");
+    assert!(
+        error.contains("houseolds"),
+        "the misspelled key is not named: {error}"
+    );
+}
+
+#[test]
+fn unknown_table_is_rejected() {
+    let error = parse_error(&format!("{}\n[oops]\nx = 1\n", shipped()));
+    assert!(error.contains("unknown field"), "{error}");
+    assert!(
+        error.contains("oops"),
+        "the stray table is not named: {error}"
+    );
+}
+
+#[test]
+fn empty_config_is_rejected() {
+    let error = parse_error("");
+    assert!(
+        error.contains("missing field"),
+        "an empty file must not produce a fully-defaulted parameter set: {error}"
+    );
+}
+
+#[test]
+fn removed_value_is_rejected() {
+    let error = parse_error(&shipped().replace("households = 200", "households ="));
+    assert!(
+        error.contains("TOML parse error"),
+        "a key with no value must fail before the deserializer runs: {error}"
+    );
+}
+
+#[test]
+fn float_where_int_is_not_coerced() {
+    let error = parse_error(&shipped().replace("households = 200", "households = 250.0"));
+    assert!(error.contains("invalid type"), "{error}");
+    assert!(error.contains("floating point"), "{error}");
+}
+
+#[test]
+fn string_where_int_is_not_coerced() {
+    let error = parse_error(&shipped().replace("households = 200", "households = \"42\""));
+    assert!(error.contains("invalid type"), "{error}");
+    assert!(error.contains("string"), "{error}");
+}
+
+// --- Run identity ---------------------------------------------------------
+
+#[test]
+fn key_order_does_not_change_params_but_does_change_the_hash() {
+    let raw = shipped();
+    let reordered = tables_reversed(&raw);
+    assert_ne!(raw, reordered, "the reordering was a no-op");
+
+    let straight: Params = toml::from_str(&raw).expect("the shipped config must parse");
+    let reversed: Params = toml::from_str(&reordered).expect("the reordered config must parse");
+    assert_eq!(
+        straight, reversed,
+        "table order changed the parsed parameters"
+    );
+
+    // The hash is over bytes, not over the parsed value. That is deliberate: a
+    // comment change is a hash change, and the comments carry the source grades
+    // CORE-11 makes load-bearing.
+    assert_ne!(
+        config::config_hash(raw.as_bytes()),
+        config::config_hash(reordered.as_bytes()),
+        "reordering the file left the run's identifying hash unchanged"
+    );
+}
+
+#[test]
+fn hash_is_stable_across_repeated_computation() {
+    let bytes = shipped().into_bytes();
+    let first = config::config_hash(&bytes);
+
+    assert_eq!(first.len(), 64, "digest is not 64 hex characters: {first}");
+    assert!(
+        first
+            .chars()
+            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
+        "digest is not lowercase hex: {first}"
+    );
+
+    for _ in 0..8 {
+        assert_eq!(first, config::config_hash(&bytes), "the hash is not stable");
+    }
+}
+
+// --- The two source assertions, inside the test binary --------------------
+
+#[test]
+fn no_serde_defaults_anywhere_in_src() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let sources = rust_sources(&src);
+    assert!(
+        !sources.is_empty(),
+        "no sources found under {}",
+        src.display()
+    );
+
+    for path in &sources {
+        let text = fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        assert!(
+            !text.contains("serde(default"),
+            "{} carries an explicit serde default — a hidden hardcoded parameter",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn no_optional_fields_in_the_config_schema() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/config.rs");
+    let text =
+        fs::read_to_string(&path).unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+
+    for form in ["Option<", "Option <", "option::Option"] {
+        assert!(
+            !text.contains(form),
+            "{} names `{form}` — an optional field is a default with no attribute to grep for",
+            path.display()
+        );
+    }
+}
