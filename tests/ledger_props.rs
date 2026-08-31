@@ -25,11 +25,11 @@
 //!
 //! **A refusal is not a failure.** `PostError::Overdraft`, `SelfDealing`,
 //! `NegativeAmount`, `NegativeUnits`, `ShortStock`, `EmptyExchange`,
-//! `UnknownAccount` and `UnknownGood` are legitimate runtime outcomes — an
-//! overdraft is an economic event. The properties therefore ignore whether an
-//! operation succeeded and assert only what the books look like afterwards. The
-//! one exception is the return-agreement property, which asserts that a refusal
-//! changed *nothing at all*.
+//! `EmptyTransfer`, `UnknownAccount` and `UnknownGood` are legitimate runtime
+//! outcomes — an overdraft is an economic event. The properties therefore
+//! ignore whether an operation succeeded and assert only what the books look
+//! like afterwards. The one exception is the return-agreement property, which
+//! asserts that a refusal changed *nothing at all*.
 //!
 //! No dependency is added here. `proptest` is already a locked dev-dependency
 //! and continuous integration builds with `--locked`, so reaching for a crate
@@ -40,7 +40,7 @@ use std::path::Path;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
 
-use sim::books::Books;
+use sim::books::{Books, PostingKind};
 use sim::config::{self, Params};
 use sim::ids::{Account, FirmId, FirmSlot, GoodId, HouseholdId};
 use sim::invariants::CheckSet;
@@ -83,6 +83,15 @@ const CARRIED_GOOD: GoodId = GoodId(0);
 /// gate on would make every such sequence fail for a reason that has nothing to
 /// do with what is under test. The gate itself is proved end to end in
 /// `tests/invariant_halt.rs`, at the tick level where it means something.
+///
+/// **The gate being off used to hide a real defect, so what covers that hole is
+/// named here.** [`any_cents`] draws zero on nearly every case, so zero-cent
+/// transfers were generated constantly — and with the gate off nothing observed
+/// that the recorder had counted one as a transaction, which is precisely the
+/// LEDG-08 bypass this file could not see. Turning the gate on is not the
+/// answer, for the reason above. [`every_counted_transaction_moved_money`] is:
+/// it asserts the *counting rule* directly, at every operation, with the gate
+/// still off.
 fn small_params() -> Params {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
     let (mut params, _hash) = config::load(&path).expect("the shipped configuration loads");
@@ -203,7 +212,12 @@ fn any_account() -> impl Strategy<Value = Account> {
 /// in these books, so the overdraft boundary is crossed from both sides.
 fn any_cents() -> impl Strategy<Value = i64> {
     prop_oneof![
-        // Zero: a no-op transfer, and the `EmptyExchange` region for exchange.
+        // Zero: the `EmptyTransfer` region for transfer and the
+        // `EmptyExchange` region for exchange. Both refusals exist for the same
+        // reason — a posting that moves no cent would still count towards the
+        // liveness minimum — and
+        // [`every_counted_transaction_moved_money`] is what observes them here,
+        // because the gate itself is off in these books.
         3 => Just(0i64),
         // The negative region, just inside the boundary and at it.
         2 => Just(-1i64),
@@ -634,6 +648,68 @@ proptest! {
                     op
                 );
             }
+        }
+    }
+
+    /// Every transaction the books counted moved a non-zero amount of cash, and
+    /// the count is exactly the number of cash postings on the journal
+    /// (LEDG-08).
+    ///
+    /// **This is the property that gives the liveness minimum its meaning.**
+    /// `Books::transactions_this_tick` counts `Transfer` and `Exchange`
+    /// postings and nothing else, and `invariants::check_liveness` passes a tick
+    /// once that count reaches one. The counting rule is what makes LEDG-08 mean
+    /// "money changed hands" rather than "something happened" — and it only
+    /// means that if no counted posting can carry an empty cash leg.
+    ///
+    /// Asserted here rather than by turning the liveness gate on, because the
+    /// gate is a claim about a whole tick and these properties assert after
+    /// every operation (see [`small_params`]). This claim is per-posting, so it
+    /// holds mid-tick and can be asserted where the gate cannot.
+    ///
+    /// **What it catches, by mutation.** Delete the `EmptyTransfer` refusal from
+    /// `Books::transfer` and this property fails: [`any_cents`] draws zero often
+    /// and [`any_op`] weights `Transfer` heavily, so a counted posting with both
+    /// cash legs at zero appears within the first few cases. Before that
+    /// refusal existed, nothing in this file observed it — the books it runs
+    /// against have the liveness gate off, so a tick in which not one cent moved
+    /// passed every check.
+    #[test]
+    fn every_counted_transaction_moved_money(ops in any_ops()) {
+        let (mut books, _checks) = small_books();
+
+        for (index, op) in ops.iter().enumerate() {
+            apply(*op, &mut books);
+
+            let mut cash_postings = 0u32;
+            for posting in books.journal() {
+                if !matches!(posting.kind, PostingKind::Transfer | PostingKind::Exchange) {
+                    continue;
+                }
+                cash_postings += 1;
+
+                prop_assert!(
+                    posting.debit_cents > 0 && posting.credit_cents > 0,
+                    "posting {} counts towards the liveness minimum but moved \
+                     {} cents out and {} cents in, after operation {} ({:?})",
+                    posting.seq,
+                    posting.debit_cents,
+                    posting.credit_cents,
+                    index,
+                    op
+                );
+            }
+
+            prop_assert_eq!(
+                books.transactions_this_tick(),
+                cash_postings,
+                "the tick counted {} transactions against {} cash postings on the \
+                 journal, after operation {} ({:?})",
+                books.transactions_this_tick(),
+                cash_postings,
+                index,
+                op
+            );
         }
     }
 

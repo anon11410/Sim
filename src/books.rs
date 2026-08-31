@@ -336,6 +336,30 @@ pub enum PostError {
     )]
     EmptyExchange { units: i64, amount_cents: i64 },
 
+    /// A transfer of nothing.
+    ///
+    /// Refused on exactly the terms [`PostError::EmptyExchange`] is, and for
+    /// exactly the same reason: it moves no cent, yet
+    /// [`Books::transactions_this_tick`] would count it, and
+    /// `invariants::check_liveness` would then read `counted >= 1` for a tick
+    /// in which nothing changed hands — the degenerate "a transaction
+    /// happened" pass LEDG-08 exists to close. The counting rule is what makes
+    /// LEDG-08 mean "money changed hands" rather than "something happened", and
+    /// it only means that if a zero-cent transfer never reaches the recorder.
+    ///
+    /// This is not a hypothetical. Phase 6 introduces partial payroll payment
+    /// and Phase 8 dividends; a firm with no cash paying a wage of zero calls
+    /// `transfer(firm, household, Money::ZERO)`, and the baseline configuration
+    /// records that the liveness gate turns on in the same phase.
+    /// `invariants::check_zero_sum` reports the same shape through
+    /// `ZeroSumDetail::EmptyTransfer`, so refusing it here means the journal
+    /// never records one and a posting that somehow appears is still named.
+    #[error(
+        "a transfer of {amount_cents} cents moves nothing: it would change no \
+         balance and would still count towards the liveness minimum"
+    )]
+    EmptyTransfer { amount_cents: i64 },
+
     /// A negative unit count is refused rather than treated as a movement in
     /// the opposite direction, for the same reason [`PostError::NegativeAmount`]
     /// is: reversing the direction skips the stock check on the side that
@@ -710,6 +734,16 @@ impl Books {
         // --- compute: every fallible step, before any write -----------------
         if amount.cents() < 0 {
             return Err(PostError::NegativeAmount {
+                amount_cents: amount.cents(),
+            });
+        }
+        // A transfer of nothing is refused at the boundary on exactly the terms
+        // an empty exchange is, and for the same reason: `record` counts a
+        // transfer towards the liveness minimum whatever its amount, so a
+        // zero-cent transfer would satisfy LEDG-08 for a tick in which not one
+        // cent moved. See [`PostError::EmptyTransfer`].
+        if amount.cents() == 0 {
+            return Err(PostError::EmptyTransfer {
                 amount_cents: amount.cents(),
             });
         }
@@ -1848,6 +1882,22 @@ mod tests {
             (
                 books.transfer(household(0), firm(0, 0), Money::from_cents(-1)),
                 PostError::NegativeAmount { amount_cents: -1 },
+            ),
+            (
+                // A transfer that moves nothing would still count towards the
+                // liveness minimum, which is the degenerate pass LEDG-08 exists
+                // to close — the same hole the `exchange` sibling below
+                // enumerates three cases for. Refused here, and reported by the
+                // zero-sum check if one ever reaches the journal.
+                books.transfer(household(0), firm(0, 0), Money::ZERO),
+                PostError::EmptyTransfer { amount_cents: 0 },
+            ),
+            (
+                // Zero *and* self-dealing: the empty-leg clause is evaluated
+                // first, so which refusal is reported is fixed rather than
+                // incidental.
+                books.transfer(household(0), household(0), Money::ZERO),
+                PostError::EmptyTransfer { amount_cents: 0 },
             ),
             (
                 books.transfer(household(0), household(0), Money::from_cents(1)),

@@ -4,3 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
+cc f6cc6baee25fccc107b1f91743a6960819cd3e96b932b58b31c613343b717867 # shrinks to ops = [Transfer { from: Household(HouseholdId(0)), to: Household(HouseholdId(1)), cents: 0 }]

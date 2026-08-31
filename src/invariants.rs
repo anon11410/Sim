@@ -260,6 +260,13 @@ pub enum ZeroSumDetail {
     /// hands. [`crate::books::Books::exchange`] refuses it, so no public path
     /// can record one.
     EmptyExchange { cents: i64, units: i64 },
+    /// A transfer with no cash on either leg. Nothing changed hands, whatever
+    /// the posting claims, and it would count towards the liveness minimum —
+    /// the degenerate "a transaction happened" pass LEDG-08 exists to close.
+    /// The counterpart of [`ZeroSumDetail::EmptyExchange`] for the one-legged
+    /// cash operation. [`crate::books::Books::transfer`] refuses it, so no
+    /// public path can record one.
+    EmptyTransfer { debit_cents: i64, credit_cents: i64 },
     /// An endowment carries a debit leg. Its counterparty is outside the books
     /// by definition, so nothing can have left an account inside them.
     EndowmentHasADebitLeg { debit_cents: i64, units_out: i64 },
@@ -312,6 +319,14 @@ impl std::fmt::Display for ZeroSumDetail {
             ZeroSumDetail::EmptyExchange { cents, units } => write!(
                 f,
                 "an exchange with an empty leg: {cents} cents against {units} units"
+            ),
+            ZeroSumDetail::EmptyTransfer {
+                debit_cents,
+                credit_cents,
+            } => write!(
+                f,
+                "a transfer of nothing: {debit_cents} cents left the debit account \
+                 and {credit_cents} cents arrived, so nothing changed hands"
             ),
             ZeroSumDetail::EndowmentHasADebitLeg {
                 debit_cents,
@@ -659,8 +674,11 @@ fn check_zero_sum(books: &Books, tick: u32) -> Result<(), Violation> {
 ///
 /// The rules, and what each kind promises:
 ///
-/// - **Transfer** — cash between two *distinct* accounts, in equal amounts,
-///   and no units.
+/// - **Transfer** — cash between two *distinct* accounts, in equal and
+///   **non-zero** amounts, and no units. A transfer of nothing is not a smaller
+///   transfer: no balance moves, yet the recorder counts it towards the
+///   liveness minimum, so it is the same degenerate pass an empty exchange
+///   would be (LEDG-08).
 /// - **Exchange** — equal cash one way and equal units the other, between two
 ///   *distinct* accounts, with neither leg empty.
 /// - **Produce** / **Consume** — one account on both legs, no cash, and units in
@@ -684,6 +702,12 @@ fn well_formed(posting: &Posting) -> Result<(), ZeroSumDetail> {
             }
             if posting.debit_cents != posting.credit_cents {
                 return Err(ZeroSumDetail::CashLegsDiffer {
+                    debit_cents: posting.debit_cents,
+                    credit_cents: posting.credit_cents,
+                });
+            }
+            if posting.debit_cents == 0 {
+                return Err(ZeroSumDetail::EmptyTransfer {
                     debit_cents: posting.debit_cents,
                     credit_cents: posting.credit_cents,
                 });
@@ -959,6 +983,55 @@ mod liveness {
 
         assert_eq!(books.transactions_this_tick(), 1);
         assert_eq!(checks.run(&books, 0), Ok(()));
+    }
+
+    #[test]
+    fn a_tick_whose_only_transfer_moved_nothing_still_fails_liveness() {
+        // **The check with teeth for LEDG-08.** A zero-cent transfer changes no
+        // balance, so money conservation, goods conservation, non-negativity and
+        // zero-sum all pass on the books it leaves — liveness is the only check
+        // that can report the tick, and it can only do so if the recorder never
+        // counted the attempt. `Books::transfer` therefore refuses an empty
+        // amount at the boundary, exactly as `Books::exchange` does.
+        //
+        // Phase 6's partial payroll and Phase 8's dividend are the call sites
+        // that will ask for one, and the baseline configuration turns this gate
+        // on in the same phase. Without the refusal a firm with no cash paying a
+        // wage of zero satisfies liveness for the whole tick, and the check
+        // reports green forever after.
+        let (mut books, checks) = empty_books(true);
+        let payer = Account::Household(HouseholdId(0));
+        let payee = Account::Firm(FirmId {
+            slot: FirmSlot(0),
+            generation: 0,
+        });
+
+        assert_eq!(
+            books.transfer(payer, payee, Money::ZERO),
+            Err(crate::books::PostError::EmptyTransfer { amount_cents: 0 }),
+            "a transfer of nothing is refused at the boundary"
+        );
+
+        assert_eq!(
+            books.transactions_this_tick(),
+            0,
+            "a refused transfer counts no transaction"
+        );
+        assert!(books.journal().is_empty(), "and records no posting");
+        assert_eq!(
+            checks.run(&books, 5),
+            Err(Violation::Liveness {
+                tick: 5,
+                counted: 0,
+                required: MINIMUM_TRANSACTIONS_PER_TICK,
+            }),
+            "the tick traded nothing and liveness says so"
+        );
+
+        // And the positive direction on the same books, so the assertion above
+        // is not passing because the gate is permanently red.
+        move_a_cent(&mut books);
+        assert_eq!(checks.run(&books, 5), Ok(()));
     }
 
     #[test]
@@ -1796,6 +1869,19 @@ mod zero_sum {
                 },
             ),
             (
+                // The transfer counterpart of the empty exchange above, and the
+                // shape `Books::transfer` now refuses at the boundary. Both cash
+                // legs agree, so the `CashLegsDiffer` clause above passes it —
+                // which is exactly why it needs a clause and a variant of its
+                // own rather than being caught incidentally.
+                "a transfer of nothing",
+                line(PostingKind::Transfer),
+                ZeroSumDetail::EmptyTransfer {
+                    debit_cents: 0,
+                    credit_cents: 0,
+                },
+            ),
+            (
                 "an endowment carrying a debit leg",
                 Posting {
                     debit_cents: 70,
@@ -2447,10 +2533,11 @@ mod message {
     /// The one good v1 carries.
     const FOOD: GoodId = GoodId(0);
 
-    /// How many shapes [`ZeroSumDetail`] carries. Eight, not the six an earlier
-    /// draft of this phase expected: a one-party kind naming two accounts and an
-    /// exchange with an empty leg are both expressible and both refused.
-    const DETAIL_SHAPES: usize = 8;
+    /// How many shapes [`ZeroSumDetail`] carries. Nine, not the six an earlier
+    /// draft of this phase expected: a one-party kind naming two accounts, an
+    /// exchange with an empty leg and a transfer of nothing are all expressible
+    /// and all refused.
+    const DETAIL_SHAPES: usize = 9;
 
     fn household(index: u32) -> Account {
         Account::Household(HouseholdId(index))
@@ -2494,7 +2581,8 @@ mod message {
             ZeroSumDetail::SelfDealing { .. } => 4,
             ZeroSumDetail::SplitParties { .. } => 5,
             ZeroSumDetail::EmptyExchange { .. } => 6,
-            ZeroSumDetail::EndowmentHasADebitLeg { .. } => 7,
+            ZeroSumDetail::EmptyTransfer { .. } => 7,
+            ZeroSumDetail::EndowmentHasADebitLeg { .. } => 8,
         }
     }
 
@@ -2523,6 +2611,10 @@ mod message {
                 credit: firm(2),
             },
             ZeroSumDetail::EmptyExchange { cents: 0, units: 5 },
+            ZeroSumDetail::EmptyTransfer {
+                debit_cents: 0,
+                credit_cents: 0,
+            },
             ZeroSumDetail::EndowmentHasADebitLeg {
                 debit_cents: 40,
                 units_out: 2,
