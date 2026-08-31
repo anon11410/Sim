@@ -110,6 +110,47 @@ fn rust_sources(dir: &Path) -> Vec<PathBuf> {
     sources
 }
 
+/// `line` with any `//` line comment removed.
+///
+/// Used only by the float-LITERAL check. A float literal inside a comment is
+/// prose, not arithmetic — `src/rng.rs` legitimately names the vendored crate
+/// version "0.10.2" in its module docs — whereas a float TYPE spelled anywhere,
+/// including a comment, is a signal worth keeping strict. Hence the asymmetry:
+/// the type check below reads whole lines, this one does not.
+///
+/// A `//` inside a string literal would be stripped too. No such line exists
+/// under `src/`, and the failure mode is a missed detection in a check that is
+/// itself a backstop, not a false accusation.
+fn without_line_comment(line: &str) -> &str {
+    match line.find("//") {
+        Some(at) => &line[..at],
+        None => line,
+    }
+}
+
+/// Whether `line` contains a floating-point literal: a digit, a dot, a digit.
+///
+/// Rust does not require naming the type to work in floats. Both of
+///
+/// ```text
+/// let smoothing = 0.25;                                   // inferred f64
+/// let expected = observed * smoothing + expected * (1.0 - smoothing);
+/// ```
+///
+/// call no banned method, so clippy is silent, and name no type, so
+/// `names_a_float_type` is silent — yet float arithmetic creeping into a
+/// behaviour module is the single most important thing this pair is supposed to
+/// catch. This closes that.
+///
+/// Deliberately does not fire on `1..10` (the neighbour of each dot is another
+/// dot), `x.0` or `Self::CONST` (no digit on one side).
+fn names_a_float_literal(line: &str) -> bool {
+    let code = without_line_comment(line);
+    let b = code.as_bytes();
+    (1..b.len().saturating_sub(1))
+        .any(|i| b[i] == b'.' && b[i - 1].is_ascii_digit() && b[i + 1].is_ascii_digit())
+}
+
 /// Whether `line` names a floating-point type as a whole word. A substring
 /// match alone would fire on a hex literal or a longer identifier.
 fn names_a_float_type(line: &str) -> bool {
@@ -137,14 +178,20 @@ fn confinement_of_the_float_domain() {
     );
 
     for path in &sources {
+        // Matched on the path RELATIVE TO `src/`, not on the bare file name. A
+        // future `src/market/numeric.rs` would otherwise be allowlisted by
+        // coincidence of basename rather than by being the module that owns the
+        // float domain.
         let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .expect("a source file has a name");
+            .strip_prefix(&src)
+            .expect("every source is under src/")
+            .to_str()
+            .expect("a source path is valid UTF-8")
+            .to_string();
         let text = fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
 
-        if !FLOAT_ALLOWLIST.contains(&name) {
+        if !FLOAT_ALLOWLIST.contains(&name.as_str()) {
             for (number, line) in text.lines().enumerate() {
                 assert!(
                     !names_a_float_type(line),
@@ -153,6 +200,19 @@ fn confinement_of_the_float_domain() {
                     path.display(),
                     number + 1,
                     FLOAT_ALLOWLIST
+                );
+                // The lint catches the accidental CALL and the check above
+                // catches the named TYPE. Neither sees untyped float
+                // arithmetic, which is the form the spread actually takes.
+                assert!(
+                    !names_a_float_literal(line),
+                    "{}:{} contains a floating-point literal; only {:?} may \
+                     (an inferred f64 needs no type name and calls no banned \
+                     method, so it is invisible to both other guards): {}",
+                    path.display(),
+                    number + 1,
+                    FLOAT_ALLOWLIST,
+                    line.trim()
                 );
             }
         }
