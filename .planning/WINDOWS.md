@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 22
+open_count: 26
 waived_count: 0
 fixed_count: 4
-total_count: 26
-last_updated: 2026-08-31T14:45:57.809Z
+total_count: 30
+last_updated: 2026-08-31T15:07:29.668Z
 ---
 
 # Broken Windows Ledger
@@ -41,6 +41,10 @@ last_updated: 2026-08-31T14:45:57.809Z
 | 24 | 02 | deviation | src/books.rs |  | Closure of ledger entry 23. Books gains a fifth corruption method, corrupt_silent_stock(Account, GoodId, i64) - #[cfg(test)] pub(crate), no feature flag, no production surface - because no existing corruption could reach the goods check's balance-derived arm without also moving the journal arm. invariants::goods gains two negative tests, one per arm: an_exchange_whose_unit_legs_disagree_is_a_goods_leak_and_is_localised (journal residual 2, delta_units 0, posting Some) and units_conjured_outside_the_posting_path_break_the_identity_and_name_no_posting (delta_units -7, journal residual 0, posting None). Mutation-verified three ways: neutering the whole body fails both, neutering journal_residual_units fails only the first, neutering delta_units fails only the second. Two cross-phase obligations. (a) tests/lints.sh guard 7j pins the probe call count to the declaration count, so a sixth corruption method needs a matching line in tests/lint-probes/books_cfg_test_probe.rs.txt - it refused this commit until the line was added. (b) Phase 5 rewrites total_stock, produced, consumed and goods_residual_units_for to be per-good; these two tests are what will catch a rewrite that breaks the check, and their expected produced/stock values are derived from params (firms x initial_inventory_units), not read back from the books. | open |  | 2026-08-31T11:49:41.130Z |  |
 | 25 | 3 | deviation | .planning/REQUIREMENTS.md |  | requirements mark-complete flipped TICK-02/03/04/10 to Complete for a plan with no production code; reverted, all four remain Pending | open |  | 2026-08-31T14:22:06.500Z |  |
 | 26 | 3 | deviation | .planning/REQUIREMENTS.md |  | 03-02 marked only TICK-01 Complete of the four in its frontmatter. TICK-03 is also claimed by plan 03-04 and TICK-08/TICK-10 by plan 03-05, so marking all four would have made the traceability table claim work two later plans have yet to do (the failure WINDOWS entry 25 records). Close this when 03-04 and 03-05 land and their halves are marked. | open |  | 2026-08-31T14:45:57.809Z |  |
+| 27 | 3 | deviation | config/PROVENANCE.md |  | Plan 03-03 task 3's check 'grep -c GRADE: PROJECT config/PROVENANCE.md must print 4' is miscalibrated: grep -c counts LINES, and the phrase occurs on four lines before this plan (three table rows plus line 223, which quotes CORE-10's own wording). After correctly adding the fourth row the check prints 5 and fires for a reason it does not name. The artifact was NOT edited to satisfy the probe; the substantive claim was measured with the anchored form grep -cE '^\\\| `[A-Z_]+` \\\|.*GRADE: PROJECT' which prints 4. Later plans should use the anchored form. Same defect shape as the seven prior instances: an assertion whose stated claim is not what it measures. | open |  | 2026-08-31T15:07:29.211Z |  |
+| 28 | 3 | deviation | .planning/REQUIREMENTS.md |  | 03-03 marked only TICK-04 Complete of the three in its frontmatter. TICK-05 is also claimed by plan 03-05 (the enforced exclusion from the diff and the halted-run assertion) and TICK-07 by plan 03-04 (schema validation); marking all three would repeat the failure WINDOWS entry 25 records. Close when 03-04 and 03-05 land. Separately, TICK-04's Complete is narrower than its text: hire/fire/dividend/bankruptcy are declared and round-trip-tested but have no call site until Phases 6, 8 and 10, so the clause 'sufficient to reconstruct any agent's history' is only testable once agents have histories. What Phase 3 owns and delivered is the wire shape and the endowment origin rows. | open |  | 2026-08-31T15:07:29.354Z |  |
+| 29 | 3 | deviation | CLAUDE.md |  | CLAUDE.md and .planning/research/STACK.md both state that serde_json sorts map keys giving byte-identical output. That is true only of serde_json::Value::Object, whose backing map is a BTreeMap; a HashMap FIELD on a serialised struct goes through serialize_map and keeps the map's own iteration order (measured: five different orderings in five consecutive runs of one binary). The correction is recorded in src/log.rs's module doc and in 03-03-SUMMARY.md, but both source documents are outside plan 03-03's files_modified and remain uncorrected. Fix in the phase documentation pass or /gsd-docs-update. | open |  | 2026-08-31T15:07:29.491Z |  |
+| 30 | 3 | deviation | src/log.rs |  | log::endowment_events sums an account's holdings across books.goods() into one 'units' field. There is exactly one good today so the sum is that good's holding, but Phase 5 (a second good) must revisit the field: one record per account with a summed holding stops meaning anything once two goods exist. The function's doc comment says so; no test would fail on the day it happens, because there is no second good to write one against. | open |  | 2026-08-31T15:07:29.668Z |  |
 
 ````json
 [
@@ -354,6 +358,54 @@ last_updated: 2026-08-31T14:45:57.809Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T14:45:57.809Z",
+    "resolved_at": null
+  },
+  {
+    "id": 27,
+    "kind": "deviation",
+    "phase": "3",
+    "file": "config/PROVENANCE.md",
+    "line": null,
+    "description": "Plan 03-03 task 3's check 'grep -c GRADE: PROJECT config/PROVENANCE.md must print 4' is miscalibrated: grep -c counts LINES, and the phrase occurs on four lines before this plan (three table rows plus line 223, which quotes CORE-10's own wording). After correctly adding the fourth row the check prints 5 and fires for a reason it does not name. The artifact was NOT edited to satisfy the probe; the substantive claim was measured with the anchored form grep -cE '^\\| `[A-Z_]+` \\|.*GRADE: PROJECT' which prints 4. Later plans should use the anchored form. Same defect shape as the seven prior instances: an assertion whose stated claim is not what it measures.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T15:07:29.211Z",
+    "resolved_at": null
+  },
+  {
+    "id": 28,
+    "kind": "deviation",
+    "phase": "3",
+    "file": ".planning/REQUIREMENTS.md",
+    "line": null,
+    "description": "03-03 marked only TICK-04 Complete of the three in its frontmatter. TICK-05 is also claimed by plan 03-05 (the enforced exclusion from the diff and the halted-run assertion) and TICK-07 by plan 03-04 (schema validation); marking all three would repeat the failure WINDOWS entry 25 records. Close when 03-04 and 03-05 land. Separately, TICK-04's Complete is narrower than its text: hire/fire/dividend/bankruptcy are declared and round-trip-tested but have no call site until Phases 6, 8 and 10, so the clause 'sufficient to reconstruct any agent's history' is only testable once agents have histories. What Phase 3 owns and delivered is the wire shape and the endowment origin rows.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T15:07:29.354Z",
+    "resolved_at": null
+  },
+  {
+    "id": 29,
+    "kind": "deviation",
+    "phase": "3",
+    "file": "CLAUDE.md",
+    "line": null,
+    "description": "CLAUDE.md and .planning/research/STACK.md both state that serde_json sorts map keys giving byte-identical output. That is true only of serde_json::Value::Object, whose backing map is a BTreeMap; a HashMap FIELD on a serialised struct goes through serialize_map and keeps the map's own iteration order (measured: five different orderings in five consecutive runs of one binary). The correction is recorded in src/log.rs's module doc and in 03-03-SUMMARY.md, but both source documents are outside plan 03-03's files_modified and remain uncorrected. Fix in the phase documentation pass or /gsd-docs-update.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T15:07:29.491Z",
+    "resolved_at": null
+  },
+  {
+    "id": 30,
+    "kind": "deviation",
+    "phase": "3",
+    "file": "src/log.rs",
+    "line": null,
+    "description": "log::endowment_events sums an account's holdings across books.goods() into one 'units' field. There is exactly one good today so the sum is that good's holding, but Phase 5 (a second good) must revisit the field: one record per account with a summed holding stops meaning anything once two goods exist. The function's doc comment says so; no test would fail on the day it happens, because there is no second good to write one against.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T15:07:29.668Z",
     "resolved_at": null
   }
 ]

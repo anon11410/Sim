@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 3
 current_phase_name: World, Tick Pipeline and Log Seam
 status: executing
-stopped_at: Completed 03-02-PLAN.md
-last_updated: "2026-08-31T14:45:46.840Z"
+stopped_at: Completed 03-03-PLAN.md
+last_updated: "2026-08-31T15:07:07.789Z"
 last_activity: 2026-08-31
-last_activity_desc: "Executed plan 03-02 — the tracer: world, nine-phase pipeline, tick log, real CLI"
-state_head: 3ef67d25dc78bb2751b701a4025d4d86794afeab
+last_activity_desc: "Executed plan 03-03 — the event stream, the provenance table and the run record"
+state_head: 0928ac1ad63be52c409737fdc9f9cf2a0b5c583d
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 21
-  completed_plans: 17
+  completed_plans: 18
   percent: 18
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 3 — World, Tick Pipeline and Log Seam
-Plan: 2 of 6 complete (03-01, 03-02)
-Status: Executing — waves 1 and 2 done; 03-03 (events, provenance, run record) next
-Last activity: 2026-08-31 — Executed plan 03-02
+Plan: 3 of 6 complete (03-01, 03-02, 03-03)
+Status: Executing — waves 1 to 3 done; 03-04 (the generated schema and its drift test) next
+Last activity: 2026-08-31 — Executed plan 03-03
 
 Progress: [██░░░░░░░░] 18%
 
@@ -69,6 +69,7 @@ Progress: [██░░░░░░░░] 18%
 | Phase 01 P07 | 18 min | 3 tasks | 8 files |
 | Phase 3 P1 | 5min | 2 tasks | 3 files |
 | Phase 03 P02 | 30min | 3 tasks | 10 files |
+| Phase 3 P3 | ~25min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -115,6 +116,13 @@ Recent decisions affecting current work:
 - [Phase 3]: 03-02: the run-directory default is runs/latest, and /runs is gitignored. The committed golden run of plan 03-06 lives under tests/, not there.
 - [Phase 3]: 03-02: ticks.csv column set frozen — tick, total_money_cents, firm_cash_cents, stock_units, headcount, transactions, rng_draws, activation_digest, postings. Costly to change from 03-04 (schema) and 03-06 (golden run).
 - [Phase 3]: 03-02: only TICK-01 marked Complete. TICK-03/08/10 are also claimed by plans 03-04 and 03-05 and stay Pending until those land (WINDOWS.md entry 25 is the precedent for not marking early).
+- [Phase 3]: No nested record in the event stream (03-RESEARCH Open Q4): a nested field serialises through the key-ordered value type while top-level fields keep declaration order, so one file would carry two orderings
+- [Phase 3]: No per-firm panel in Phase 3 (03-RESEARCH Open Q2): Firm's whole behavioural state is one posted price; Phase 9 adds the panel with books-derived columns logged redundantly
+- [Phase 3]: SCHEMA_VERSION is a const in src/log.rs with a GRADE: PROJECT provenance row, not a config leaf (03-RESEARCH Open Q1) — config leaf count stays at 41
+- [Phase 3]: The schema version is spelled v1, without a decimal point: the float-confinement guard is string-blind and the Phase 1 precedent is to reword the source, never widen the allowlist
+- [Phase 3]: Every agent in the event stream is a rendered address (household:12, firm:3:0), not a bare index — one spelling across events.jsonl, provenance.csv and a serialised posting
+- [Phase 3]: Decision and Rule are Rust enums, not &static str: TICK-07's 'never free text' becomes unwriteable rather than merely unwritten
+- [Phase 3]: run_meta.json carries no duration and no environment field — a duration differs between two identical runs and invites a permanent widening of a determinism test
 
 ### Pending Todos
 
@@ -153,6 +161,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T14:45:08.425Z
-Stopped at: Completed 03-02-PLAN.md
+Last session: 2026-08-31T15:06:55.603Z
+Stopped at: Completed 03-03-PLAN.md
 Resume file: None
