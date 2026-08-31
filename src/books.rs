@@ -321,6 +321,21 @@ pub enum PostError {
     #[error("{0} is not a good these books carry")]
     UnknownGood(GoodId),
 
+    /// An exchange with an empty leg: no cash, or no units, or neither.
+    ///
+    /// Refused rather than recorded, for the same reason
+    /// [`PostError::SelfDealing`] is. An exchange moves cash one way and units
+    /// the other; one that moves nothing is not a smaller exchange but a
+    /// different shape, and it would still count towards the liveness minimum
+    /// (LEDG-08) — the degenerate "a transaction happened" pass that check
+    /// exists to close. `invariants::check_zero_sum` reports exactly this
+    /// shape, so refusing it here means the journal never records one.
+    #[error(
+        "an exchange of {units} units for {amount_cents} cents has an empty leg: an \
+         exchange moves cash one way and units the other, and neither leg may be empty"
+    )]
+    EmptyExchange { units: i64, amount_cents: i64 },
+
     /// A negative unit count is refused rather than treated as a movement in
     /// the opposite direction, for the same reason [`PostError::NegativeAmount`]
     /// is: reversing the direction skips the stock check on the side that
@@ -885,6 +900,12 @@ impl Books {
         if units < 0 {
             return Err(PostError::NegativeUnits { units });
         }
+        if amount.cents() == 0 || units == 0 {
+            return Err(PostError::EmptyExchange {
+                units,
+                amount_cents: amount.cents(),
+            });
+        }
         if buyer == seller {
             return Err(PostError::SelfDealing { account: buyer });
         }
@@ -948,6 +969,42 @@ impl Books {
     /// its slot.
     pub fn cash_of(&self, account: Account) -> Option<Money> {
         self.resolve(account).map(|slot| self.cash_at(slot))
+    }
+
+    /// Every account these books hold, in the order the non-negativity check
+    /// walks them: households by ascending index, then firm slots by ascending
+    /// slot, each firm named by the identity that currently occupies it.
+    ///
+    /// **The order is part of the invariant contract**, not an incidental
+    /// property of two vectors. Two accounts can hold a negative quantity at the
+    /// same time, and a check that reported an arbitrary one of them would make
+    /// its own negative test flaky in a way that looks exactly like a real
+    /// failure. The order rests on the derived total order `src/ids.rs` already
+    /// carries, so it is the same order every other part of the system would
+    /// produce if it sorted.
+    ///
+    /// Borrows shared, mutates nothing and allocates nothing: it is walked once
+    /// per tick for the whole run.
+    pub fn accounts(&self) -> impl Iterator<Item = Account> + '_ {
+        let households = (0..self.household_cash.len()).map(|index| {
+            let index = u32::try_from(index)
+                .expect("the household vectors were sized from a u32 household count");
+            Account::Household(HouseholdId(index))
+        });
+        let firms = self
+            .firm_generation
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(index, generation)| {
+                let slot = u16::try_from(index)
+                    .expect("the firm vectors were sized from a u16 slot count");
+                Account::Firm(FirmId {
+                    slot: FirmSlot(slot),
+                    generation,
+                })
+            });
+        households.chain(firms)
     }
 
     /// Every cent the books hold, summed over the balances.
@@ -1328,6 +1385,53 @@ mod tests {
                 opening_cents: params.money.total_money_cents,
             })
         );
+    }
+
+    #[test]
+    fn the_account_walk_is_households_ascending_then_firm_slots_ascending() {
+        // The order is part of the invariant contract: two accounts can be
+        // negative at once, and a check that reported an arbitrary one of them
+        // would make its own negative test flaky in a way indistinguishable
+        // from a real failure. Asserted on the sequence, never on the length.
+        let params = shipped();
+        let books = Books::new(&params).expect("the shipped endowment sums to the stock");
+        let walked: Vec<Account> = books.accounts().collect();
+
+        let mut expected: Vec<Account> = (0..params.sim.households).map(household).collect();
+        expected.extend((0..params.sim.firms).map(|slot| {
+            firm(
+                u16::try_from(slot).expect("the shipped run has at most u16::MAX slots"),
+                0,
+            )
+        }));
+
+        assert_eq!(walked, expected);
+        assert_eq!(
+            walked.first().copied(),
+            Some(household(0)),
+            "households are walked first"
+        );
+        assert_eq!(
+            walked.last().copied(),
+            Some(firm(
+                u16::try_from(params.sim.firms - 1).expect("at most u16::MAX slots"),
+                0
+            )),
+            "and firm slots last, in ascending slot order"
+        );
+
+        let mut sorted = walked.clone();
+        sorted.sort_unstable();
+        assert_eq!(
+            sorted, walked,
+            "the walk agrees with the derived total order src/ids.rs already carries"
+        );
+        for account in &walked {
+            assert!(
+                books.cash_of(*account).is_some(),
+                "every walked address resolves: {account}"
+            );
+        }
     }
 
     #[test]
@@ -1722,6 +1826,31 @@ mod goods {
             (
                 books.exchange(buyer, seller, ONLY_GOOD, -1, Money::from_cents(1)),
                 PostError::NegativeUnits { units: -1 },
+            ),
+            (
+                // An exchange that moves nothing would still count towards the
+                // liveness minimum, which is the degenerate pass LEDG-08 exists
+                // to close. Refused here, and reported by the zero-sum check if
+                // one ever reaches the journal.
+                books.exchange(buyer, seller, ONLY_GOOD, 0, Money::from_cents(0)),
+                PostError::EmptyExchange {
+                    units: 0,
+                    amount_cents: 0,
+                },
+            ),
+            (
+                books.exchange(buyer, seller, ONLY_GOOD, 2, Money::from_cents(0)),
+                PostError::EmptyExchange {
+                    units: 2,
+                    amount_cents: 0,
+                },
+            ),
+            (
+                books.exchange(buyer, seller, ONLY_GOOD, 0, Money::from_cents(50)),
+                PostError::EmptyExchange {
+                    units: 0,
+                    amount_cents: 50,
+                },
             ),
             (
                 books.exchange(buyer, buyer, ONLY_GOOD, 1, Money::from_cents(1)),
