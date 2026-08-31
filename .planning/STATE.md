@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 3
 current_phase_name: World, Tick Pipeline and Log Seam
 status: executing
-stopped_at: Completed 03-03-PLAN.md
-last_updated: "2026-08-31T15:07:07.789Z"
+stopped_at: Completed 03-04-PLAN.md
+last_updated: "2026-08-31T15:25:12.800Z"
 last_activity: 2026-08-31
-last_activity_desc: "Executed plan 03-03 — the event stream, the provenance table and the run record"
-state_head: 0928ac1ad63be52c409737fdc9f9cf2a0b5c583d
+last_activity_desc: Executed plan 03-03 — the event stream, the provenance table and the run record
+state_head: 76dfa5b4714904c761f88f35348a2e46cf1a4cee
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 21
-  completed_plans: 18
+  completed_plans: 19
   percent: 18
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 3 — World, Tick Pipeline and Log Seam
-Plan: 3 of 6 complete (03-01, 03-02, 03-03)
+Plan: 4 of 6 complete (03-01, 03-02, 03-03)
 Status: Executing — waves 1 to 3 done; 03-04 (the generated schema and its drift test) next
 Last activity: 2026-08-31 — Executed plan 03-03
 
@@ -70,6 +70,7 @@ Progress: [██░░░░░░░░] 18%
 | Phase 3 P1 | 5min | 2 tasks | 3 files |
 | Phase 03 P02 | 30min | 3 tasks | 10 files |
 | Phase 3 P3 | ~25min | 3 tasks | 5 files |
+| Phase 03 P04 | ~20min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -123,6 +124,10 @@ Recent decisions affecting current work:
 - [Phase 3]: Every agent in the event stream is a rendered address (household:12, firm:3:0), not a bare index — one spelling across events.jsonl, provenance.csv and a serialised posting
 - [Phase 3]: Decision and Rule are Rust enums, not &static str: TICK-07's 'never free text' becomes unwriteable rather than merely unwritten
 - [Phase 3]: run_meta.json carries no duration and no environment field — a duration differs between two identical runs and invites a permanent widening of a determinism test
+- [Phase 3]: No schema-derive crate: a derive cannot see #[serde(serialize_with)] and emits properties alphabetically; measured declaring this repo's own address fields as objects where the writer emits strings
+- [Phase 3]: The schema's names come from the emitted text and its types from parsing that same text — no second description of the types anywhere
+- [Phase 3]: The drift test never writes; regeneration is an operator command named in its own failure message
+- [Phase 3]: The float-dtype build check stays a bare grep -cE 'float(64|32)' — pinning the key name and spacing would make a negative check pass vacuously
 
 ### Pending Todos
 
@@ -161,6 +166,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T15:06:55.603Z
-Stopped at: Completed 03-03-PLAN.md
+Last session: 2026-08-31T15:25:04.260Z
+Stopped at: Completed 03-04-PLAN.md
 Resume file: None
