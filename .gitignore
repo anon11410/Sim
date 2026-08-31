@@ -20,3 +20,8 @@ npm-debug.log*
 # of the reproducibility contract (a minor bump of the RNG crate can legally
 # change a distribution algorithm).
 /target
+
+# Run output. The binary's --out defaults to runs/latest, so a bare invocation
+# in the repository root writes here. Generated per-run artefacts, never
+# reviewed: the committed golden run of plan 03-06 lives under tests/, not here.
+/runs

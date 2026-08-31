@@ -1,18 +1,30 @@
 //! End-to-end check of the BUILT BINARY, not of each layer in isolation.
 //!
 //! The binary is reached through `env!("CARGO_BIN_EXE_sim")`, so this exercises
-//! the real artefact: argument parsing, config read, hash, seed resolution,
-//! sub-stream draw and money construction, in one process.
+//! the real artefact: argument parsing, config read, seed resolution, the whole
+//! nine-phase tick pipeline, and the run directory it leaves behind — in one
+//! process.
 //!
-//! The library is reached through `use sim::…` (CORE-08), which is what lets
-//! case (a) recompute the binary's draw independently and compare.
+//! **What the first three tests now prove, and why they still exist.** Until
+//! Phase 3 they parsed the Phase 1 tracer's single stdout line. The binary no
+//! longer prints one, so they were PORTED rather than deleted: they are not
+//! obsolete in intent, and the different-seed one is the direct ancestor of
+//! TICK-10.
+//!
+//! They are deliberately kept at the COLUMN level. Plan 03-05 asserts the
+//! file-byte-level and cross-process claims with the process-testing crate; the
+//! overlap is intentional rather than duplication. These three are the cheap,
+//! direct, binary-level smoke test that has existed since Phase 1, and reading
+//! a named column is what makes a failure here say *which* column stopped
+//! depending on the seed — something a byte comparison cannot.
+//!
+//! The library is still reached through `use sim::…` (CORE-08): the expected
+//! row count is read from the shipped configuration rather than written out, so
+//! a change to the configured run length cannot leave this file asserting a
+//! stale number.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-
-use sim::config::Params;
-use sim::money::Money;
-use sim::rng::{Purpose, Rngs};
 
 const CONFIG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/config/baseline.toml");
 
@@ -23,8 +35,8 @@ fn out_dir(name: &str) -> PathBuf {
     dir
 }
 
-/// Invoke the built binary and return its stdout, asserting a clean exit.
-fn run(seed: u64, out: &Path) -> String {
+/// Invoke the built binary against the shipped config, asserting a clean exit.
+fn run(seed: u64, out: &Path) {
     let output = Command::new(env!("CARGO_BIN_EXE_sim"))
         .args(["--config", CONFIG])
         .args(["--seed", &seed.to_string()])
@@ -40,79 +52,115 @@ fn run(seed: u64, out: &Path) -> String {
         String::from_utf8_lossy(&output.stderr),
     );
 
-    String::from_utf8(output.stdout).expect("stdout was not valid UTF-8")
+    // The run is the artefact; a clean run says nothing on standard output.
+    // This is the runtime half of "the Phase 1 tracer line is gone" — a rewrite
+    // that had been additive rather than a replacement would fail here.
+    assert!(
+        output.stdout.is_empty(),
+        "expected no standard output, got {:?}",
+        String::from_utf8_lossy(&output.stdout),
+    );
 }
 
-/// Pull `key=value` out of the single tracer line.
-fn field<'a>(line: &'a str, key: &str) -> &'a str {
-    line.split_whitespace()
-        .find_map(|token| token.strip_prefix(&format!("{key}=")))
-        .unwrap_or_else(|| panic!("no `{key}=` field in tracer line: {line}"))
+/// The raw bytes of the per-tick series a run left behind.
+fn ticks_bytes(out: &Path) -> Vec<u8> {
+    std::fs::read(out.join("ticks.csv")).expect("the run left a tick file behind")
+}
+
+/// One column of the FIRST DATA ROW, addressed by name out of the header.
+///
+/// By name, never by position: a column that moved would otherwise silently
+/// change what this file claims to be asserting.
+fn first_row_column(out: &Path, name: &str) -> String {
+    let text = String::from_utf8(ticks_bytes(out)).expect("the tick file is text");
+    let mut lines = text.lines();
+    let header: Vec<&str> = lines
+        .next()
+        .expect("the tick file has a header")
+        .split(',')
+        .collect();
+    let at = header
+        .iter()
+        .position(|column| *column == name)
+        .unwrap_or_else(|| panic!("no {name} column in {header:?}"));
+    lines
+        .next()
+        .expect("the tick file has at least one data row")
+        .split(',')
+        .nth(at)
+        .unwrap_or_else(|| panic!("the first data row is narrower than the header"))
+        .to_owned()
+}
+
+/// The run length the shipped configuration asks for, read through the library.
+fn configured_ticks() -> u32 {
+    sim::config::load(Path::new(CONFIG))
+        .expect("the library loads the same config the binary does")
+        .0
+        .sim
+        .ticks
 }
 
 #[test]
 fn runs_end_to_end() {
-    let stdout = run(7, &out_dir("end-to-end"));
+    let out = out_dir("end-to-end");
+    run(7, &out);
 
-    let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 1, "expected exactly one line, got {stdout:?}");
-    let line = lines[0];
-    assert!(line.starts_with("tracer "), "unexpected prefix: {line}");
+    let text = String::from_utf8(ticks_bytes(&out)).expect("the tick file is text");
+    let lines: Vec<&str> = text.lines().collect();
+    let expected = usize::try_from(configured_ticks()).expect("the tick count is bounded") + 1;
 
-    // The effective seed is the override, not the config's own seed.
-    assert_eq!(field(line, "effective_seed"), "7");
-
-    let hash = field(line, "config_sha256");
-    assert_eq!(hash.len(), 64, "digest is not 64 hex characters: {hash}");
+    assert_eq!(
+        lines.len(),
+        expected,
+        "one header line plus one row per configured tick"
+    );
     assert!(
-        hash.chars()
-            .all(|c| c.is_ascii_digit() || ('a'..='f').contains(&c)),
-        "digest is not lowercase hex: {hash}",
+        lines[0].starts_with("tick,"),
+        "the header is missing or the tick column moved: {}",
+        lines[0]
     );
-
-    // Recompute the binary's work through the library surface. This is the
-    // half that proves `src/main.rs` holds no simulation logic: every value it
-    // printed is reachable from `tests/` through `use sim::…`.
-    let (params, library_hash): (Params, String) =
-        sim::config::load(Path::new(CONFIG)).expect("library failed to load the same config");
-    assert_eq!(
-        hash, library_hash,
-        "binary and library disagree on the config hash"
+    assert!(
+        !text.contains('\r'),
+        "the line terminator carries no carriage return"
     );
-
-    let mut probe = Rngs::new(7).stream(0, 0, Purpose::TracerProbe);
-    let draw = probe.below(1_000_000);
-    assert_eq!(probe.draws(), 1, "below() must take exactly one draw");
-    assert_eq!(
-        field(line, "draw"),
-        draw.to_string(),
-        "binary and library disagree on the draw"
-    );
-
-    let money = Money::from_cents(params.money.total_money_cents) + Money::ZERO;
-    assert_eq!(field(line, "money_cents"), money.cents().to_string());
 }
 
 #[test]
 fn same_seed_is_reproducible() {
-    let first = run(7, &out_dir("repro-a"));
-    let second = run(7, &out_dir("repro-b"));
+    let first = out_dir("repro-a");
+    let second = out_dir("repro-b");
+    run(7, &first);
+    run(7, &second);
 
     assert_eq!(
-        first, second,
-        "the same seed produced different output across two runs",
+        ticks_bytes(&first),
+        ticks_bytes(&second),
+        "the same seed produced different tick files across two runs",
     );
 }
 
 #[test]
-fn different_seed_changes_the_draw() {
-    let seven = run(7, &out_dir("seed-7"));
-    let eight = run(8, &out_dir("seed-8"));
+fn different_seed_changes_the_activation_digest() {
+    let seven = out_dir("seed-7");
+    let eight = out_dir("seed-8");
+    run(7, &seven);
+    run(8, &eight);
 
+    // The draw count is IDENTICAL at both seeds, and that is exactly why a run
+    // logging only the count produced byte-identical files at two seeds while
+    // appearing to consume the generator. Asserted here so the next reader can
+    // see what the digest column is for.
+    assert_eq!(
+        first_row_column(&seven, "rng_draws"),
+        first_row_column(&eight, "rng_draws"),
+        "the per-tick draw count is fixed-draw and therefore seed-independent",
+    );
     assert_ne!(
-        field(&seven, "draw"),
-        field(&eight, "draw"),
-        "the draw did not change with the seed — the RNG may be constant",
+        first_row_column(&seven, "activation_digest"),
+        first_row_column(&eight, "activation_digest"),
+        "the activation digest did not change with the seed — nothing the seed \
+         touches reaches a diffed byte",
     );
 }
 
