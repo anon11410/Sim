@@ -388,5 +388,21 @@ and item 1 should be settled before Phase 3 fixes the log schema.
 
 ---
 
+## Acknowledged Gaps
+
+Recorded at phase transition (2026-08-31) per `verify-work` § `scan_phase_artifacts`.
+`audit-open` reported 2 deferred items; both were inspected and neither blocks
+Phase 1 completion.
+
+| Item | State | Disposition |
+|---|---|---|
+| `cargo fmt --check` on files plan 01-04 did not own | **Already closed** by plan 01-07 (commits `bc6f16d` + `6d10d1a`) and re-confirmed at transition: `cargo fmt --check` exits 0 on the current tree. `audit-open` counts the bullet without reading its CLOSED marker, so this is a scanner over-report, not an open item. | No action |
+| **V-3a** — `entrant_size_ratio_ppm` (`800000`, 0.8x) contradicts its cited source (`size-replacing-firms = 0.2`) | **Genuinely open.** Needs a human decision; D-20 forbids resolving it from model memory. | Carried forward as a **blocking gate before Phase 10** (BANK-04 is the first consumer of the value). Recorded in `01-VALIDATION.md` manual-only and in `config/PROVENANCE.md`. Does not block Phase 1. |
+
+Acknowledged by: `/gsd-verify-work 1` (autonomous run authorised by the user, who
+was shown both items before the run began).
+
+---
+
 _Verified: 2026-08-31T01:12:23Z_
 _Verifier: Claude (gsd-verifier)_

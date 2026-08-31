@@ -33,7 +33,7 @@ conversion anywhere.
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Primitives and the Determinism Spine** - Money, IDs, config and seeded randomness with the properties that cannot be retrofitted
+- [x] **Phase 1: Primitives and the Determinism Spine** - Money, IDs, config and seeded randomness with the properties that cannot be retrofitted (completed 2026-08-31)
 - [ ] **Phase 2: Books, Journal and Invariants** - One ledger owns every cent and every unit; five checks halt the run on the offending posting
 - [ ] **Phase 3: World, Tick Pipeline and Log Seam** - 3,650 empty ticks run and two seeds diff byte-identically before any economics exist
 - [ ] **Phase 4: Python Acceptance Harness Skeleton** - An independent harness that reads the run directory and can prove the sim wrong
@@ -248,7 +248,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Primitives and the Determinism Spine | 8/8 | In Progress|  |
+| 1. Primitives and the Determinism Spine | 8/8 | Complete    | 2026-08-31 |
 | 2. Books, Journal and Invariants | 0/TBD | Not started | - |
 | 3. World, Tick Pipeline and Log Seam | 0/TBD | Not started | - |
 | 4. Python Acceptance Harness Skeleton | 0/TBD | Not started | - |
