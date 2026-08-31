@@ -240,9 +240,33 @@ pub enum ZeroSumDetail {
     /// The cents that left the debit account are not the cents that arrived at
     /// the credit account.
     CashLegsDiffer { debit_cents: i64, credit_cents: i64 },
-    /// The units that left are not the units that arrived, in a way the
-    /// posting's kind does not permit.
+    /// The units that left are not the units that arrived, on a kind that
+    /// requires them to be equal. An exchange, and only an exchange: the
+    /// one-party goods kinds report
+    /// [`ZeroSumDetail::UnitsInTheWrongDirection`] instead, because for them
+    /// the fault is a leg being present at all rather than the two legs
+    /// disagreeing.
     UnitLegsDiffer { units_out: i64, units_in: i64 },
+    /// A one-party goods posting moved units in the direction its kind does not
+    /// permit: a production that also released units, or a consumption that
+    /// also received them.
+    ///
+    /// **A separate variant from [`ZeroSumDetail::UnitLegsDiffer`] because it is
+    /// a different fault.** The `Produce` and `Consume` rules do not compare the
+    /// two legs — they require one of them to be zero — so reporting a
+    /// disagreement is wrong whenever the two are equal, which is exactly the
+    /// case this project's own test exercises (`units_out: 4, units_in: 4`).
+    /// The rendered message then read "the unit legs disagree: 4 units left but
+    /// 4 arrived", stating the opposite of the numbers it carried, and an
+    /// operator reading it would conclude the invariant module was broken rather
+    /// than the production rule. The whole point of `ZeroSumDetail` carrying
+    /// exactly what disagreed is defeated by a message that names the wrong
+    /// thing.
+    UnitsInTheWrongDirection {
+        kind: PostingKind,
+        units_out: i64,
+        units_in: i64,
+    },
     /// Cash on a posting whose kind moves only units.
     CashOnAGoodsOnlyPosting { debit_cents: i64, credit_cents: i64 },
     /// Units on a posting whose kind moves only cash.
@@ -292,6 +316,22 @@ impl std::fmt::Display for ZeroSumDetail {
                 f,
                 "the unit legs disagree: {units_out} units left but {units_in} arrived"
             ),
+            ZeroSumDetail::UnitsInTheWrongDirection {
+                kind,
+                units_out,
+                units_in,
+            } => {
+                // Exhaustive on the kind rather than defaulted, so a new
+                // PostingKind forces a decision about how its fault reads.
+                let what = match kind {
+                    PostingKind::Produce => "a production also released units",
+                    PostingKind::Consume => "a consumption also received units",
+                    PostingKind::Endow => "an endowment released units",
+                    PostingKind::Transfer => "a transfer moved units",
+                    PostingKind::Exchange => "an exchange moved units one-sidedly",
+                };
+                write!(f, "{what}: {units_out} left and {units_in} arrived")
+            }
             ZeroSumDetail::CashOnAGoodsOnlyPosting {
                 debit_cents,
                 credit_cents,
@@ -698,7 +738,10 @@ fn check_zero_sum(books: &Books, tick: u32) -> Result<(), Violation> {
 ///   *distinct* accounts, with neither leg empty.
 /// - **Produce** / **Consume** — one account on both legs, no cash, and units in
 ///   exactly one direction: a production may not also release units and a
-///   consumption may not also receive them.
+///   consumption may not also receive them. That is a rule about a leg being
+///   ABSENT, not about the two legs agreeing, which is why breaking it reports
+///   [`ZeroSumDetail::UnitsInTheWrongDirection`] and not
+///   [`ZeroSumDetail::UnitLegsDiffer`].
 /// - **Endow** — one account on both legs and no debit leg at all, because an
 ///   endowment's counterparty is outside the books.
 ///
@@ -752,8 +795,12 @@ fn well_formed(posting: &Posting) -> Result<(), ZeroSumDetail> {
         PostingKind::Produce => {
             one_party(posting)?;
             no_cash(posting)?;
+            // Not a comparison of the two legs: the rule is that the outgoing
+            // leg must be absent. Reporting `UnitLegsDiffer` here said "the
+            // unit legs disagree" of two numbers that are very often equal.
             if posting.units_out != 0 {
-                return Err(ZeroSumDetail::UnitLegsDiffer {
+                return Err(ZeroSumDetail::UnitsInTheWrongDirection {
+                    kind: posting.kind,
                     units_out: posting.units_out,
                     units_in: posting.units_in,
                 });
@@ -763,7 +810,8 @@ fn well_formed(posting: &Posting) -> Result<(), ZeroSumDetail> {
             one_party(posting)?;
             no_cash(posting)?;
             if posting.units_in != 0 {
-                return Err(ZeroSumDetail::UnitLegsDiffer {
+                return Err(ZeroSumDetail::UnitsInTheWrongDirection {
+                    kind: posting.kind,
                     units_out: posting.units_out,
                     units_in: posting.units_in,
                 });
@@ -1909,18 +1957,61 @@ mod zero_sum {
                 },
             ),
             (
+                // The two legs are EQUAL. Reported as `UnitLegsDiffer` this
+                // rendered "the unit legs disagree: 4 units left but 4 arrived",
+                // which states the opposite of the numbers it carries. The real
+                // fault is that a production released units at all.
                 "a production that also releases units",
                 Posting {
                     units_out: 4,
                     units_in: 4,
                     ..one_sided(PostingKind::Produce)
                 },
-                ZeroSumDetail::UnitLegsDiffer {
+                ZeroSumDetail::UnitsInTheWrongDirection {
+                    kind: PostingKind::Produce,
                     units_out: 4,
                     units_in: 4,
                 },
             ),
+            (
+                // The mirror, which the table did not cover at all: the
+                // `Consume` arm reported the same variant and had the same
+                // defect.
+                "a consumption that also receives units",
+                Posting {
+                    units_out: 6,
+                    units_in: 6,
+                    ..one_sided(PostingKind::Consume)
+                },
+                ZeroSumDetail::UnitsInTheWrongDirection {
+                    kind: PostingKind::Consume,
+                    units_out: 6,
+                    units_in: 6,
+                },
+            ),
         ];
+
+        // The message a reader gets must not contradict the numbers it carries.
+        // Asserted on the rendered form, because the whole finding was that the
+        // value was right and the prose was wrong.
+        for (_, posting, _) in &cases {
+            if let Err(detail) = well_formed(posting) {
+                let rendered = detail.to_string();
+                if let ZeroSumDetail::UnitsInTheWrongDirection {
+                    units_out,
+                    units_in,
+                    ..
+                } = detail
+                    && units_out == units_in
+                {
+                    assert!(
+                        !rendered.contains("disagree"),
+                        "a shape whose two legs are equal must not be reported as \
+                         a disagreement: {rendered}"
+                    );
+                }
+            }
+        }
 
         for (what, posting, expected) in cases {
             assert_eq!(well_formed(&posting), Err(expected), "{what}: {posting}");
@@ -2552,7 +2643,7 @@ mod message {
     /// draft of this phase expected: a one-party kind naming two accounts, an
     /// exchange with an empty leg and a transfer of nothing are all expressible
     /// and all refused.
-    const DETAIL_SHAPES: usize = 9;
+    const DETAIL_SHAPES: usize = 10;
 
     fn household(index: u32) -> Account {
         Account::Household(HouseholdId(index))
@@ -2591,13 +2682,14 @@ mod message {
         match detail {
             ZeroSumDetail::CashLegsDiffer { .. } => 0,
             ZeroSumDetail::UnitLegsDiffer { .. } => 1,
-            ZeroSumDetail::CashOnAGoodsOnlyPosting { .. } => 2,
-            ZeroSumDetail::UnitsOnACashOnlyPosting { .. } => 3,
-            ZeroSumDetail::SelfDealing { .. } => 4,
-            ZeroSumDetail::SplitParties { .. } => 5,
-            ZeroSumDetail::EmptyExchange { .. } => 6,
-            ZeroSumDetail::EmptyTransfer { .. } => 7,
-            ZeroSumDetail::EndowmentHasADebitLeg { .. } => 8,
+            ZeroSumDetail::UnitsInTheWrongDirection { .. } => 2,
+            ZeroSumDetail::CashOnAGoodsOnlyPosting { .. } => 3,
+            ZeroSumDetail::UnitsOnACashOnlyPosting { .. } => 4,
+            ZeroSumDetail::SelfDealing { .. } => 5,
+            ZeroSumDetail::SplitParties { .. } => 6,
+            ZeroSumDetail::EmptyExchange { .. } => 7,
+            ZeroSumDetail::EmptyTransfer { .. } => 8,
+            ZeroSumDetail::EndowmentHasADebitLeg { .. } => 9,
         }
     }
 
@@ -2610,6 +2702,13 @@ mod message {
             },
             ZeroSumDetail::UnitLegsDiffer {
                 units_out: 3,
+                units_in: 4,
+            },
+            // The legs are EQUAL here on purpose: this is the case whose message
+            // used to read "the unit legs disagree: 4 units left but 4 arrived".
+            ZeroSumDetail::UnitsInTheWrongDirection {
+                kind: PostingKind::Produce,
+                units_out: 4,
                 units_in: 4,
             },
             ZeroSumDetail::CashOnAGoodsOnlyPosting {
