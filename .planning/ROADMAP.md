@@ -34,7 +34,7 @@ conversion anywhere.
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Primitives and the Determinism Spine** - Money, IDs, config and seeded randomness with the properties that cannot be retrofitted (completed 2026-08-31)
-- [ ] **Phase 2: Books, Journal and Invariants** - One ledger owns every cent and every unit; five checks halt the run on the offending posting
+- [x] **Phase 2: Books, Journal and Invariants** - One ledger owns every cent and every unit; five checks halt the run on the offending posting (completed 2026-08-31)
 - [ ] **Phase 3: World, Tick Pipeline and Log Seam** - 3,650 empty ticks run and two seeds diff byte-identically before any economics exist
 - [ ] **Phase 4: Python Acceptance Harness Skeleton** - An independent harness that reads the run directory and can prove the sim wrong
 - [ ] **Phase 5: Goods, Recipes and Production** - Goods as a data table with a recipe, produced into a conserved stock
@@ -99,13 +99,14 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — The liveness config gate, `Display` for every ledger address, and the source amendments: criterion 2's localisation clause, LEDG-09, and the Phase 3 / Phase 6 cross-phase criteria
-- [ ] 02-02-PLAN.md — TRACER (one slice, split at the module seam for a resume boundary): `Books`, the journal and the check set, proved by a tick loop that halts on a tick that traded nothing
-- [ ] 02-03-PLAN.md — Goods: production, consumption, the cash-for-units swap, and the one-shape goods identity
-- [ ] 02-04-PLAN.md — Non-negativity, zero-sum, headcount in the books, and the check-order contract
-- [ ] 02-05-PLAN.md — The negative tests: four seeded corruptions, the halting tick loop, localisation across a cancelling residual
-- [ ] 02-06-PLAN.md — LEDG-02's four legs: panic-atomicity, two compile-fail probes, eight source guards, the lint entries
-- [ ] 02-07-PLAN.md — Properties: conservation, transfer-return agreement, the goods identity, the two-source agreement
+
+- [x] 02-01-PLAN.md — The liveness config gate, `Display` for every ledger address, and the source amendments: criterion 2's localisation clause, LEDG-09, and the Phase 3 / Phase 6 cross-phase criteria
+- [x] 02-02-PLAN.md — TRACER (one slice, split at the module seam for a resume boundary): `Books`, the journal and the check set, proved by a tick loop that halts on a tick that traded nothing
+- [x] 02-03-PLAN.md — Goods: production, consumption, the cash-for-units swap, and the one-shape goods identity
+- [x] 02-04-PLAN.md — Non-negativity, zero-sum, headcount in the books, and the check-order contract
+- [x] 02-05-PLAN.md — The negative tests: four seeded corruptions, the halting tick loop, localisation across a cancelling residual
+- [x] 02-06-PLAN.md — LEDG-02's four legs: panic-atomicity, two compile-fail probes, eight source guards, the lint entries
+- [x] 02-07-PLAN.md — Properties: conservation, transfer-return agreement, the goods identity, the two-source agreement
 
 ### Phase 3: World, Tick Pipeline and Log Seam
 
@@ -261,7 +262,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Primitives and the Determinism Spine | 8/8 | Complete    | 2026-08-31 |
-| 2. Books, Journal and Invariants | 0/TBD | Not started | - |
+| 2. Books, Journal and Invariants | 7/7 | Complete    | 2026-08-31 |
 | 3. World, Tick Pipeline and Log Seam | 0/TBD | Not started | - |
 | 4. Python Acceptance Harness Skeleton | 0/TBD | Not started | - |
 | 5. Goods, Recipes and Production | 0/TBD | Not started | - |
