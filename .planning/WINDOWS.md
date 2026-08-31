@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 4
+open_count: 6
 waived_count: 0
-fixed_count: 0
-total_count: 4
-last_updated: 2026-08-31T09:22:48.317Z
+fixed_count: 1
+total_count: 7
+last_updated: 2026-08-31T09:38:30.201Z
 ---
 
 # Broken Windows Ledger
@@ -18,7 +18,10 @@ last_updated: 2026-08-31T09:22:48.317Z
 | 1 | 01 | deviation | .planning/REQUIREMENTS.md |  | Tasks 1 and 4 assert grep -c '^- \\[ \\] \\*\\*' == 87 as a no-rows-lost tripwire; it reports 84 because plan 01-01 checked off CORE-02/08/09. Total rows (^- \\[[ x]\\] \\*\\*) is 87. Criterion baseline is stale, not a file defect. | open |  | 2026-08-30T23:17:58.131Z |  |
 | 2 | 01 | deviation | config/baseline.toml |  | V-4: theta=0.75 sense contradicts the key name price_inaction_prob_ppm; flagged in config/PROVENANCE.md for the Phase 6 gate, not corrected from memory (D-20) | open |  | 2026-08-31T00:14:39.114Z |  |
 | 3 | 02 | deviation | .planning/phases/02-books-journal-and-invariants/02-02-PLAN.md |  | Task 2 verify command 'cargo test --locked --lib books invariants' is not valid cargo syntax (one positional TESTNAME only); use 'cargo test --locked --lib -- books invariants'. Plans 02-03..02-07 must not copy the broken form. | open |  | 2026-08-31T09:22:48.072Z |  |
-| 4 | 02 | stub | src/books.rs | 118 | Posting::units_out/units_in/goods_residual_units are zero on every posting this phase produces; plan 02-03 gives them values and 02-04 adds the goods-conservation check that reads them | open |  | 2026-08-31T09:22:48.317Z |  |
+| 4 | 02 | stub | src/books.rs | 118 | Posting::units_out/units_in/goods_residual_units are zero on every posting this phase produces; plan 02-03 gives them values and 02-04 adds the goods-conservation check that reads them | fixed |  | 2026-08-31T09:22:48.317Z | 2026-08-31T09:38:20.748Z |
+| 5 | 02 | deviation | .planning/phases/02-books-journal-and-invariants/02-03-PLAN.md |  | Task 1 acceptance criterion "grep -c 'pub fn produce' src/books.rs prints 1" is unsatisfiable: the pattern is a substring of 'pub fn produced', the accessor the same plan mandates in <artifacts_produced>. It prints 2. Anchored form 'pub fn produce\\(' prints 1. Same for consume/consumed. | open |  | 2026-08-31T09:38:20.990Z |  |
+| 6 | 02 | deviation | src/invariants.rs |  | Violation carries Option<Box<Posting>> rather than Option<Posting>: a second posting-bearing variant pushed the enum past clippy::result_large_err's 128-byte threshold, which under -D warnings refuses to compile every Result in the crate that propagates a violation. Plans 02-04/02-05 construct Violations and must box the posting. | open |  | 2026-08-31T09:38:29.928Z |  |
+| 7 | 02 | deviation | tests/invariant_halt.rs |  | Modified outside plan 02-03's files_modified: its active-check sequence assertion is [MoneyConservation, Liveness] and inserting goods conservation at position two made it fail. Plan 02-04 inserts two more checks and must update the same two assertions (here and src/invariants.rs#the_gate_decides_the_exact_sequence_of_active_checks). | open |  | 2026-08-31T09:38:30.201Z |  |
 
 ````json
 [
@@ -65,9 +68,45 @@ last_updated: 2026-08-31T09:22:48.317Z
     "file": "src/books.rs",
     "line": 118,
     "description": "Posting::units_out/units_in/goods_residual_units are zero on every posting this phase produces; plan 02-03 gives them values and 02-04 adds the goods-conservation check that reads them",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-31T09:22:48.317Z",
+    "resolved_at": "2026-08-31T09:38:20.748Z"
+  },
+  {
+    "id": 5,
+    "kind": "deviation",
+    "phase": "02",
+    "file": ".planning/phases/02-books-journal-and-invariants/02-03-PLAN.md",
+    "line": null,
+    "description": "Task 1 acceptance criterion \"grep -c 'pub fn produce' src/books.rs prints 1\" is unsatisfiable: the pattern is a substring of 'pub fn produced', the accessor the same plan mandates in <artifacts_produced>. It prints 2. Anchored form 'pub fn produce\\(' prints 1. Same for consume/consumed.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T09:38:20.990Z",
+    "resolved_at": null
+  },
+  {
+    "id": 6,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "src/invariants.rs",
+    "line": null,
+    "description": "Violation carries Option<Box<Posting>> rather than Option<Posting>: a second posting-bearing variant pushed the enum past clippy::result_large_err's 128-byte threshold, which under -D warnings refuses to compile every Result in the crate that propagates a violation. Plans 02-04/02-05 construct Violations and must box the posting.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T09:38:29.928Z",
+    "resolved_at": null
+  },
+  {
+    "id": 7,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "tests/invariant_halt.rs",
+    "line": null,
+    "description": "Modified outside plan 02-03's files_modified: its active-check sequence assertion is [MoneyConservation, Liveness] and inserting goods conservation at position two made it fail. Plan 02-04 inserts two more checks and must update the same two assertions (here and src/invariants.rs#the_gate_decides_the_exact_sequence_of_active_checks).",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T09:38:30.201Z",
     "resolved_at": null
   }
 ]
