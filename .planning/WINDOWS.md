@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 11
+open_count: 13
 waived_count: 0
-fixed_count: 1
-total_count: 12
-last_updated: 2026-08-31T10:22:33.391Z
+fixed_count: 2
+total_count: 15
+last_updated: 2026-08-31T10:43:28.412Z
 ---
 
 # Broken Windows Ledger
@@ -26,7 +26,10 @@ last_updated: 2026-08-31T10:22:33.391Z
 | 9 | 02 | deviation | tests/invariant_halt.rs |  | Modified outside plan 02-04's files_modified, discharging ledger entry 7: the active-check sequence assertions now read five checks with the gate on and four with it off. Behavioural claims untouched. Plans 02-05..02-07 that add a check must update the same two assertions (here and src/invariants.rs#the_gate_decides_the_exact_sequence_of_active_checks). | open |  | 2026-08-31T09:55:20.666Z |  |
 | 10 | 02 | deviation | src/invariants.rs |  | ZeroSumDetail ships 8 variants, not the 6 in plan 02-04's <artifacts_produced>: SplitParties (a one-party kind naming two accounts) and EmptyExchange (the action text's 'both legs non-zero' clause, which the six listed variants cannot express). Plan 02-05's message tests should expect eight. | open |  | 2026-08-31T09:55:20.916Z |  |
 | 11 | 02 | deviation | .planning/ROADMAP.md |  | roadmap.update-plan-progress rewrote the Phase 2 plan checklist as a side effect; reverted per the wave shared-artifact rule (STATE.md and ROADMAP.md are owned by the orchestrator while sibling plans 02-06/02-07 are outstanding). Plans 02-06 and 02-07 will hit the same side effect and must revert it too. | open |  | 2026-08-31T10:11:22.368Z |  |
-| 12 | 02 | unmet-truth | tests/ledger_props.rs |  | The must_have truth 'ending a tick leaves both running residuals untouched' is asserted by ending_a_tick_leaves_the_residuals_and_the_balances_untouched but cannot fail from an integration test: on the honest path the books conserve, so both residuals are already zero at every boundary. Verified by mutation - adding 'self.cash_residual_cents = 0' to Books::end_of_tick leaves the property green. The version with teeth needs a seeded non-zero residual and therefore needs the pub(crate) corruption vocabulary, which tests/ cannot reach. Plan 02-06 owns the fault-injection unit tests and should add it there. | open |  | 2026-08-31T10:22:33.391Z |  |
+| 12 | 02 | unmet-truth | tests/ledger_props.rs |  | The must_have truth 'ending a tick leaves both running residuals untouched' is asserted by ending_a_tick_leaves_the_residuals_and_the_balances_untouched but cannot fail from an integration test: on the honest path the books conserve, so both residuals are already zero at every boundary. Verified by mutation - adding 'self.cash_residual_cents = 0' to Books::end_of_tick leaves the property green. The version with teeth needs a seeded non-zero residual and therefore needs the pub(crate) corruption vocabulary, which tests/ cannot reach. Plan 02-06 owns the fault-injection unit tests and should add it there. | fixed |  | 2026-08-31T10:22:33.391Z | 2026-08-31T10:43:12.885Z |
+| 13 | 02 | deviation | clippy.toml |  | Plan 02-06 task 2 lists nine disallowed-types entries including std::sync::Arc; only eight were added. Arc makes the clean tree fail check 1: proptest's prop_oneof! expands to code naming it, producing 9 diagnostics across 7 call sites in tests/ledger_props.rs and tests/money_props.rs, and check 4b forbids a lint exemption anywhere in tracked Rust source. Same class of finding as the plan's own RefCell exclusion; recorded in the clippy.toml comment and covered by guard 7c (Arc absent from src/). Later phases adding a proptest strategy must not re-add the entry. | open |  | 2026-08-31T10:43:27.921Z |  |
+| 14 | 02 | deviation | tests/lints.sh |  | Guards 7e and 7h are scoped to the production half of src/invariants.rs (everything before the first #[cfg(test)] line) and 7e counts the qualified field read '.liveness_enabled' rather than the bare identifier. Written literally as the plan specifies, both fail on the real tree: the unit-test modules legitimately load the shipped config from a path (7h) and set the key on a Params value (7e), and the one production read binds a local that is used again a few lines later to filter the check table (7e). The scoping is stated in the script comments. | open |  | 2026-08-31T10:43:28.153Z |  |
+| 15 | 02 | deviation | src/books.rs |  | Modified outside plan 02-06's files_modified, discharging ledger entry 12 at the orchestrator's instruction: mod tests gains ending_a_tick_leaves_a_seeded_non_zero_residual_of_either_kind_untouched, which seeds a non-zero cash and goods residual with the pub(crate) corruption vocabulary before crossing the tick boundary. Mutation-verified in both profiles. No production code changed. | open |  | 2026-08-31T10:43:28.412Z |  |
 
 ````json
 [
@@ -169,9 +172,45 @@ last_updated: 2026-08-31T10:22:33.391Z
     "file": "tests/ledger_props.rs",
     "line": null,
     "description": "The must_have truth 'ending a tick leaves both running residuals untouched' is asserted by ending_a_tick_leaves_the_residuals_and_the_balances_untouched but cannot fail from an integration test: on the honest path the books conserve, so both residuals are already zero at every boundary. Verified by mutation - adding 'self.cash_residual_cents = 0' to Books::end_of_tick leaves the property green. The version with teeth needs a seeded non-zero residual and therefore needs the pub(crate) corruption vocabulary, which tests/ cannot reach. Plan 02-06 owns the fault-injection unit tests and should add it there.",
-    "status": "open",
+    "status": "fixed",
     "reason": "",
     "recorded_at": "2026-08-31T10:22:33.391Z",
+    "resolved_at": "2026-08-31T10:43:12.885Z"
+  },
+  {
+    "id": 13,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "clippy.toml",
+    "line": null,
+    "description": "Plan 02-06 task 2 lists nine disallowed-types entries including std::sync::Arc; only eight were added. Arc makes the clean tree fail check 1: proptest's prop_oneof! expands to code naming it, producing 9 diagnostics across 7 call sites in tests/ledger_props.rs and tests/money_props.rs, and check 4b forbids a lint exemption anywhere in tracked Rust source. Same class of finding as the plan's own RefCell exclusion; recorded in the clippy.toml comment and covered by guard 7c (Arc absent from src/). Later phases adding a proptest strategy must not re-add the entry.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T10:43:27.921Z",
+    "resolved_at": null
+  },
+  {
+    "id": 14,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "tests/lints.sh",
+    "line": null,
+    "description": "Guards 7e and 7h are scoped to the production half of src/invariants.rs (everything before the first #[cfg(test)] line) and 7e counts the qualified field read '.liveness_enabled' rather than the bare identifier. Written literally as the plan specifies, both fail on the real tree: the unit-test modules legitimately load the shipped config from a path (7h) and set the key on a Params value (7e), and the one production read binds a local that is used again a few lines later to filter the check table (7e). The scoping is stated in the script comments.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T10:43:28.153Z",
+    "resolved_at": null
+  },
+  {
+    "id": 15,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "src/books.rs",
+    "line": null,
+    "description": "Modified outside plan 02-06's files_modified, discharging ledger entry 12 at the orchestrator's instruction: mod tests gains ending_a_tick_leaves_a_seeded_non_zero_residual_of_either_kind_untouched, which seeds a non-zero cash and goods residual with the pub(crate) corruption vocabulary before crossing the tick boundary. Mutation-verified in both profiles. No production code changed.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T10:43:28.412Z",
     "resolved_at": null
   }
 ]
