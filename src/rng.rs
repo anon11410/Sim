@@ -219,8 +219,18 @@ impl Stream {
     ///
     /// Multiply-high, no rejection loop: bias is at most `n / 2^64`. A variable
     /// draw count would defeat the isolation guarantee from the inside (D-05).
+    ///
+    /// # Panics
+    ///
+    /// If `n == 0`, which has no valid result. A real `assert!` and not a
+    /// debug-only one, on exactly the grounds [`pack_stream_key`] gives for its
+    /// own field asserts: compiled out, `((x as u128 * 0) >> 64) as u64`
+    /// evaluates to `0` — a plausible-looking index into an empty pool rather
+    /// than a failure. A silent wrong index corrupts a run without failing
+    /// anything, which is the whole class of defect this crate exists to
+    /// prevent.
     pub fn below(&mut self, n: u64) -> u64 {
-        debug_assert!(n > 0, "below(0) has no valid result");
+        assert!(n > 0, "below(0) has no valid result");
         self.1 += 1;
         ((self.0.next_u64() as u128 * n as u128) >> 64) as u64
     }
@@ -229,7 +239,25 @@ impl Stream {
     ///
     /// Probabilities enter the model as parts-per-million integers, never as
     /// floats, which keeps every threshold parameter in the integer domain.
+    ///
+    /// # Panics
+    ///
+    /// If `p_ppm` exceeds one million. `below(1_000_000)` can never reach such
+    /// a threshold, so the coin is deterministically true with no diagnostic
+    /// anywhere. This is not hypothetical: `config/baseline.toml` already ships
+    /// ppm keys above one million — `price_ceiling_over_mc_ppm` and
+    /// `entrant_price_ratio_ppm` are ratios, not probabilities — and wiring one
+    /// of them into a coin in a later phase is a one-character mistake.
+    /// `Params::validate` rejects the four coin-fed config keys at run start;
+    /// this is the same bound restated at the API, for a threshold computed
+    /// rather than read from the file.
     pub fn coin_ppm(&mut self, p_ppm: u32) -> bool {
+        assert!(
+            i64::from(p_ppm) <= crate::numeric::PPM_SCALE,
+            "coin_ppm called with {p_ppm} ppm, which is above {} and therefore \
+             deterministically true",
+            crate::numeric::PPM_SCALE
+        );
         self.below(1_000_000) < p_ppm as u64
     }
 
@@ -403,6 +431,43 @@ mod tests {
         let r = Rngs::new(20260830);
         let _a = r.stream(10, 7, Purpose::GoodsSample);
         let _b = r.stream(10, 7, Purpose::LabourSample);
+    }
+
+    // ---- The sampler preconditions, in EVERY profile (WR-05) -------------
+    //
+    // Both were `debug_assert!` and so compiled out of the release build, where
+    // each returned a plausible wrong answer instead of failing: `below(0)`
+    // evaluated to 0 — an index into an empty pool — and an out-of-range
+    // `coin_ppm` returned true every time. `pack_stream_key` one function
+    // earlier already used a real `assert!` and gave the reason; these now
+    // match it.
+
+    #[test]
+    #[should_panic(expected = "below(0)")]
+    fn below_zero_panics_rather_than_returning_a_plausible_index() {
+        let r = Rngs::new(20260830);
+        let _ = r.stream(0, 0, Purpose::GoodsSample).below(0);
+    }
+
+    #[test]
+    #[should_panic(expected = "deterministically true")]
+    fn a_coin_above_one_hundred_percent_panics_rather_than_always_firing() {
+        // `baseline.toml` really does ship ppm keys above a million — they are
+        // ratios, not probabilities — so this is a plausible miswiring.
+        let r = Rngs::new(20260830);
+        let _ = r
+            .stream(0, 0, Purpose::PriceInactionCoin)
+            .coin_ppm(1_260_000);
+    }
+
+    #[test]
+    fn the_coin_boundary_itself_is_legal() {
+        let r = Rngs::new(20260830);
+        assert!(
+            r.stream(0, 0, Purpose::PriceInactionCoin)
+                .coin_ppm(1_000_000),
+            "p_ppm = 1_000_000 is certainty, not an error"
+        );
     }
 
     // ---- Purpose discriminants -------------------------------------------
