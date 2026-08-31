@@ -21,7 +21,7 @@ created: "2026-08-31"
 |----------|-------|
 | **Framework** | Rust built-in `libtest`, rustc 1.94.1; `proptest` 1.11.0; **new:** `assert_cmd` 2.2.2 + `tempfile` 3.27.0 for process-level tests |
 | **Config file** | `Cargo.toml` `[dev-dependencies]`; `.proptest-regressions/` committed |
-| **Quick run command** | `cargo test --locked --lib phases world log` |
+| **Quick run command** | `cargo test --locked --lib -- phases` (one filter per run) |
 | **Full suite command** | `cargo test --locked --all-targets && cargo test --locked --release --all-targets && bash tests/lints.sh && bash tests/toolchain.sh && cargo clippy --all-targets --all-features -- -D warnings && cargo fmt --check` |
 | **Measured runtime** | debug 2.9 s · release 18.3 s cold · lints 4.6 s · toolchain 0.08 s · clippy 0.26 s warm |
 
@@ -37,7 +37,10 @@ the same commit. No new test runner, no new framework, no new CI step.
 
 ## Sampling Rate
 
-- **After every task commit:** `cargo test --locked --lib phases world log` (sub-second)
+- **After every task commit:** `cargo test --locked --lib -- phases` (sub-second). **Corrected:** the
+  three-word form `--lib phases world log` is the recorded invalid-syntax defect — `cargo test`
+  takes one positional TESTNAME and exits non-zero with `unexpected argument` *without running
+  anything*. Caught by the Phase 3 planner reading this file.
 - **After every plan wave:** both profiles, `--all-targets`
 - **Before `/gsd-verify-work`:** the full six-step suite, matching CI exactly
 - **Max feedback latency:** ~5 s warm
