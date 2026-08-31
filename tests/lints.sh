@@ -184,20 +184,33 @@ echo "  check 3: all $FIRED resolvable method bans (floats + the clock) fired, o
 # 4a. No type alias to a hashed collection. Verified in research: an alias
 #     behind an exemption makes every downstream use site COMPLETELY invisible
 #     to disallowed_types. The lint cannot see this; only a grep can.
+#
+#     The visibility group admits `pub(crate)`, `pub(super)` and `pub(in ...)`.
+#     Anchoring on `pub[[:space:]]+` alone missed all of them — and `pub(crate)`
+#     is precisely the visibility most likely to be used for an alias inside a
+#     single crate, so the guard was blind to its own most probable case.
 assert_absent "a type alias to a hashed collection exists under src/" \
-    -rEn '^[[:space:]]*(pub[[:space:]]+)?type[[:space:]]+[A-Za-z0-9_]+.*=.*Hash(Map|Set)' src/
+    -rEn '^[[:space:]]*(pub([[:space:]]*\([^)]*\))?[[:space:]]+)?type[[:space:]]+[A-Za-z0-9_]+.*=.*Hash(Map|Set)' src/
 
-# 4b. No lint exemption for the type ban, anywhere in the crate's Rust source.
-#     Scoped to tracked *.rs files because an attribute has effect only in Rust
-#     source: the planning documents and CLAUDE.md quote the attribute in prose
-#     and in code examples, and matching those would be matching a description
-#     of the hole rather than the hole.
+# 4b. No lint exemption for EITHER determinism ban, anywhere in the crate's
+#     Rust source. Scoped to tracked *.rs files because an attribute has effect
+#     only in Rust source: the planning documents and CLAUDE.md quote the
+#     attribute in prose and in code examples, and matching those would be
+#     matching a description of the hole rather than the hole.
+#
+#     This searched only for `clippy::disallowed_types`, which left the larger
+#     list unguarded: a single `#![allow(clippy::disallowed_methods)]` at the
+#     top of a module disables all 68 float and clock bans at once. Check 3
+#     proves the list RESOLVES; nothing proved no file opts out of it.
+#     `clippy::all` and `warnings` are included for the same reason — both
+#     silence the bans without naming them.
 mapfile -t RUST_SOURCES < <(git ls-files -- '*.rs')
 if [ "${#RUST_SOURCES[@]}" -eq 0 ]; then
     fail "found no tracked Rust source files to search — expected at least src/lib.rs"
 fi
-assert_absent "a file carries a lint exemption for the disallowed-types lint" \
-    -En '#!?\[(allow|expect)\(clippy::disallowed_types' -- "${RUST_SOURCES[@]}"
+assert_absent "a file carries a lint exemption for a determinism ban" \
+    -En '#!?\[(allow|expect)\((warnings|clippy::(all|disallowed_types|disallowed_methods))' \
+    -- "${RUST_SOURCES[@]}"
 
 # 4c. No point-lookup wrapper module. D-06 declines to build the hatch in this
 #     phase: not building it is the cheapest way to keep the ban honest, and
