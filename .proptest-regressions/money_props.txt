@@ -4,3 +4,4 @@
 #
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
+cc 081d2e77552270f5359ef70c5463e4323c4abcd0a96499e57d8e824374500410 # shrinks to amount = 9223372036854775807, n = 1

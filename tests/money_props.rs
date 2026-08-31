@@ -15,6 +15,42 @@ use proptest::test_runner::FileFailurePersistence;
 
 use sim::money::{Money, MoneyOverflow};
 
+/// Any representable amount, with the three edges drawn deliberately often.
+///
+/// The strategies here all used to read `1i64..1_000_000` — a strictly positive
+/// amount below one million — while the claimed invariant (this module's own
+/// header, and `CLAUDE.md` §7) is "the parts always sum exactly back to the
+/// whole, **for all** `(amount, n)`". The untested region was zero, the
+/// negatives and everything near the `i64` boundaries, and that is exactly
+/// where CR-01 lived: `Money::from_cents(i64::MAX).split(1)` panicked.
+///
+/// A uniform `any::<i64>()` would reach the boundaries with probability
+/// effectively zero over 512 cases, so the three edges are drawn explicitly
+/// rather than hoped for.
+fn any_amount() -> impl Strategy<Value = i64> {
+    prop_oneof![
+        2 => Just(i64::MAX),
+        2 => Just(i64::MIN),
+        2 => Just(0i64),
+        14 => any::<i64>(),
+    ]
+}
+
+/// Any recipient count in `1..64`, with the single-recipient case drawn often.
+///
+/// `n` used to start at 2. One is not a degenerate case to skip: it is a real
+/// dividend paid to a sole owner, and it is where CR-01 aborted. Weighting it
+/// is deliberate — the defect needs `amount == i64::MAX` AND a zero remainder
+/// AT THE SAME TIME, and a uniform `1..64` reaches that pair about once per six
+/// hundred cases, which is indistinguishable from not testing it at all.
+fn any_part_count() -> impl Strategy<Value = u32> {
+    prop_oneof![
+        3 => Just(1u32),
+        1 => Just(2u32),
+        6 => 1u32..64,
+    ]
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         // Explicit, so the run time is a property of this file rather than of
@@ -30,11 +66,16 @@ proptest! {
 
     /// No cent is created or destroyed by a split, for any amount and any
     /// recipient count.
+    ///
+    /// `n` starts at 1, not 2. The single-recipient case is not a degenerate
+    /// one to skip — it is the case CR-01 aborted on.
     #[test]
-    fn split_parts_sum_to_the_whole(amount in 1i64..1_000_000, n in 2u32..64) {
+    fn split_parts_sum_to_the_whole(amount in any_amount(), n in any_part_count()) {
         let whole = Money::from_cents(amount);
         let parts = whole.split(n);
         prop_assert_eq!(parts.len(), n as usize);
+        // `Sum` folds through the checked `Add`, so this also asserts that no
+        // intermediate partial sum overflows on the way to the total.
         prop_assert_eq!(parts.into_iter().sum::<Money>(), whole);
     }
 
@@ -43,7 +84,7 @@ proptest! {
     /// above on round numbers and fails here.
     #[test]
     fn split_parts_sum_to_the_whole_when_not_evenly_divisible(
-        amount in 1i64..1_000_000,
+        amount in any_amount(),
         n in 2u32..64,
     ) {
         prop_assume!(amount % i64::from(n) != 0);
@@ -54,8 +95,12 @@ proptest! {
 
     /// The remainder is distributed one cent at a time rather than dumped on a
     /// single recipient, so no part differs from another by more than a cent.
+    ///
+    /// Holds on both signs: a negative amount distributes a negative extra
+    /// cent, so the bumped parts sit one cent BELOW the base rather than above
+    /// it, and the spread is still exactly zero or one.
     #[test]
-    fn split_part_spread_is_at_most_one_cent(amount in 1i64..1_000_000, n in 2u32..64) {
+    fn split_part_spread_is_at_most_one_cent(amount in any_amount(), n in any_part_count()) {
         let parts: Vec<i64> = Money::from_cents(amount)
             .split(n)
             .into_iter()
