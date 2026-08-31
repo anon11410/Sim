@@ -1,0 +1,26 @@
+// The known-bad subject the negative test drives the gate against.
+//
+// A .txt file, so cargo never compiles it as part of a normal build.
+// tests/lints.sh copies it to tests/_hazard.rs, asserts that
+// `cargo clippy --all-targets --all-features -- -D warnings` then exits
+// NON-zero, and removes it again.
+//
+// It is injected into tests/ rather than src/ deliberately: plain `cargo
+// clippy` does not lint the test directory at all, so a determinism hazard
+// living here passes green under the bare invocation. Injecting it exactly
+// where the bare command is blind is what proves the --all-targets flag is
+// load-bearing rather than decorative.
+//
+// Two hazards, one per lint:
+
+/// disallowed_types — a hashed collection. Iteration order is nondeterministic
+/// and per-instance seeded, so any behaviour derived from it is irreproducible.
+pub fn hazard_hashed_collection() -> std::collections::HashMap<u32, u32> {
+    std::collections::HashMap::new()
+}
+
+/// disallowed_methods — a float method whose precision std documents as varying
+/// "within the same execution from one invocation to the next".
+pub fn hazard_banned_float_method(x: f64) -> f64 {
+    x.powf(0.9)
+}
