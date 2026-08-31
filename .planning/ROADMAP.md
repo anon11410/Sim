@@ -96,7 +96,16 @@ Plans:
   3. The liveness invariant halts a build in which a tick records zero transactions, closing the "money conserves because nothing trades" degenerate pass. It is config-gated **off** for Phase 3's pre-economics empty run and **on** by default from Phase 6 onward.
   4. Invariants run in **release** builds as a real pipeline phase returning `Result` — `grep` proves no `debug_assert!` on the invariant path, and a release binary with a seeded violation still halts.
 
-**Plans**: TBD
+**Plans**: 7 plans
+
+Plans:
+- [ ] 02-01-PLAN.md — The liveness config gate, `Display` for every ledger address, and the Phase 3 process-halt constraint
+- [ ] 02-02-PLAN.md — TRACER: `Books`, the journal and the check set, proved by a tick loop that halts on a tick that traded nothing
+- [ ] 02-03-PLAN.md — Goods: production, consumption, the cash-for-units swap, and the one-shape goods identity
+- [ ] 02-04-PLAN.md — Non-negativity, zero-sum, headcount in the books, and the check-order contract
+- [ ] 02-05-PLAN.md — The negative tests: four seeded corruptions, the halting tick loop, localisation across a cancelling residual
+- [ ] 02-06-PLAN.md — LEDG-02's four legs: panic-atomicity, two compile-fail probes, eight source guards, the lint entries
+- [ ] 02-07-PLAN.md — Properties: conservation, transfer-return agreement, the goods identity, the two-source agreement
 
 ### Phase 3: World, Tick Pipeline and Log Seam
 
