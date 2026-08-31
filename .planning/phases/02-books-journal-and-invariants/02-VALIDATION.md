@@ -2,10 +2,11 @@
 phase: "2"
 slug: "books-journal-and-invariants"
 # status lifecycle: draft (seeded by plan-phase) → validated (set by validate-phase §6)
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-08-31"
+validated: "2026-08-31"
 ---
 
 # Phase 2 — Validation Strategy
@@ -24,7 +25,7 @@ created: "2026-08-31"
 | **Config file** | `Cargo.toml` `[dev-dependencies]`; regressions in `.proptest-regressions/`, committed |
 | **Quick run command** | `cargo test --locked --lib books invariants` |
 | **Full suite command** | `cargo test --locked --all-targets && cargo test --locked --release --all-targets && bash tests/lints.sh && bash tests/toolchain.sh && cargo clippy --all-targets --all-features -- -D warnings && cargo fmt --check` |
-| **Estimated runtime** | ~5 s warm |
+| **Estimated runtime** | ~7 s warm — measured: 2.8 s debug · 0.8 s release · 3.4 s lints · 0.1 s toolchain |
 
 **No new dependency is installed in this phase.** `proptest` 1.11.0 and `thiserror`
 2.0.20 are already in the committed lockfile; CI runs `--locked`, so a `cargo add`
@@ -51,29 +52,29 @@ evaluated under this repo's exact release profile.
 
 | Req ID | Behavior | Test Type | Automated Command | File Exists | Status |
 |---|---|---|---|---|---|
-| LEDG-01 | Balances private to `books`; no `set_cash`, no `&mut Money` escapes | source guard + unit | `bash tests/lints.sh` | ❌ W0 | ⬜ pending |
-| LEDG-02 (1) | A shared borrow held across a `transfer` is `E0502` | compile-fail probe | `bash tests/lints.sh` | ❌ W0 | ⬜ pending |
-| LEDG-02 (2) | No `&mut Books` method takes a callback | source guard | `bash tests/lints.sh` | ❌ W0 | ⬜ pending |
-| LEDG-02 (3) | `books.rs` names no interior-mutability type | source guard + clippy | `cargo clippy --all-targets --all-features -- -D warnings` | ❌ W0 | ⬜ pending |
-| LEDG-02 (4) | A failing transfer leaves the books byte-identical | integration (`catch_unwind`) | `cargo test --release --test ledger_atomicity` | ❌ W0 | ⬜ pending |
-| LEDG-03 | `transfer` returns the amount moved, equal to the books' delta | property | `cargo test --release --test ledger_props transfer_return_matches_delta` | ❌ W0 | ⬜ pending |
+| LEDG-01 | Balances private to `books`; no `set_cash`, no `&mut Money` escapes | source guard + unit | `bash tests/lints.sh` | ❌ W0 | ✅ green |
+| LEDG-02 (1) | A shared borrow held across a `transfer` is `E0502` | compile-fail probe | `bash tests/lints.sh` | ❌ W0 | ✅ green |
+| LEDG-02 (2) | No `&mut Books` method takes a callback | source guard | `bash tests/lints.sh` | ❌ W0 | ✅ green |
+| LEDG-02 (3) | `books.rs` names no interior-mutability type | source guard + clippy | `cargo clippy --all-targets --all-features -- -D warnings` | ❌ W0 | ✅ green |
+| LEDG-02 (4) | A failing transfer leaves the books byte-identical | integration (`catch_unwind`) | `cargo test --release --test ledger_atomicity` | ❌ W0 | ✅ green |
+| LEDG-03 | `transfer` returns the amount moved, equal to the books' delta | property | `cargo test --release --test ledger_props transfer_return_matches_delta` | ❌ W0 | ✅ green |
 | LEDG-03 | `Money::split` parts sum exactly to the whole | property | `cargo test --lib money::split` | ✅ Phase 1 | ✅ green |
-| LEDG-04 | Total money equals opening stock after every tick, any posting sequence | property | `cargo test --release --test ledger_props conservation_under_random_postings` | ❌ W0 | ⬜ pending |
-| LEDG-04 | A seeded dropped cent yields exactly `Violation::MoneyConservation` | negative unit | `cargo test --release --lib invariants::negative` | ❌ W0 | ⬜ pending |
-| LEDG-05 | `produced − consumed − Σ stock == 0` per good, in both consumption models | unit + property | `cargo test --release --test ledger_props goods_identity_holds` | ❌ W0 | ⬜ pending |
-| LEDG-06 | No account holds negative cash, stock or headcount | unit + negative unit | `cargo test --release --lib invariants::negative` | ❌ W0 | ⬜ pending |
-| LEDG-07 | Every units-bearing posting moves equal cash the other way | unit + negative unit | `cargo test --release --lib invariants::negative` | ❌ W0 | ⬜ pending |
-| LEDG-08 | Zero-transaction tick fails gated on, passes gated off | unit (both directions) | `cargo test --release --lib invariants::liveness` | ❌ W0 | ⬜ pending |
-| LEDG-08 | The config gate is read exactly once, at construction | source guard | `bash tests/lints.sh` | ❌ W0 | ⬜ pending |
-| LEDG-09 | The reported posting is the **first** non-conserving one, including when a later posting heals the residual | unit (cancelling-residual case explicitly) | `cargo test --release --lib invariants::localise` | ❌ W0 | ⬜ pending |
-| LEDG-09 | Every `Violation` `Display` names tick, agent and posting | unit over all variants | `cargo test --release --lib invariants::message` | ❌ W0 | ⬜ pending |
-| LEDG-10 | No `debug_assert` / `cfg(debug_assertions)` in `books.rs` or `invariants.rs` | source guard | `bash tests/lints.sh` | ❌ W0 | ⬜ pending |
-| LEDG-10 | The invariant phase returns `Result` and a tick loop **aborts** at the right tick | integration | `cargo test --release --test invariant_halt` | ❌ W0 | ⬜ pending |
-| LEDG-10 | All negative tests pass **in the release profile** | profile coverage | `cargo test --locked --release --all-targets` | ✅ CI | ⬜ pending |
-| order contract | `ALL_CHECKS` is in the documented `CheckId` order | unit | `cargo test --release --lib invariants::order` | ❌ W0 | ⬜ pending |
-| config | The new key is required, annotated, and has a provenance row | existing tests, re-run | `cargo test --test config_strict --test provenance` | ✅ exists | ⚠️ will fail until all four config files are updated |
+| LEDG-04 | Total money equals opening stock after every tick, any posting sequence | property | `cargo test --release --test ledger_props conservation_under_random_postings` | ❌ W0 | ✅ green |
+| LEDG-04 | A seeded dropped cent yields exactly `Violation::MoneyConservation` | negative unit | `cargo test --release --lib invariants::negative` | ❌ W0 | ✅ green |
+| LEDG-05 | `produced − consumed − Σ stock == 0` per good, in both consumption models | unit + property | `cargo test --release --test ledger_props goods_identity_holds` | ❌ W0 | ✅ green |
+| LEDG-06 | No account holds negative cash, stock or headcount | unit + negative unit | `cargo test --release --lib invariants::negative` | ❌ W0 | ✅ green |
+| LEDG-07 | Every units-bearing posting moves equal cash the other way | unit + negative unit | `cargo test --release --lib invariants::negative` | ❌ W0 | ✅ green |
+| LEDG-08 | Zero-transaction tick fails gated on, passes gated off | unit (both directions) | `cargo test --release --lib invariants::liveness` | ❌ W0 | ✅ green |
+| LEDG-08 | The config gate is read exactly once, at construction | source guard | `bash tests/lints.sh` | ❌ W0 | ✅ green |
+| LEDG-09 | The reported posting is the **first** non-conserving one, including when a later posting heals the residual | unit (cancelling-residual case explicitly) | `cargo test --release --lib invariants::localise` | ❌ W0 | ✅ green |
+| LEDG-09 | Every `Violation` `Display` names tick, agent and posting | unit over all variants | `cargo test --release --lib invariants::message` | ❌ W0 | ✅ green |
+| LEDG-10 | No `debug_assert` / `cfg(debug_assertions)` in `books.rs` or `invariants.rs` | source guard | `bash tests/lints.sh` | ❌ W0 | ✅ green |
+| LEDG-10 | The invariant phase returns `Result` and a tick loop **aborts** at the right tick | integration | `cargo test --release --test invariant_halt` | ❌ W0 | ✅ green |
+| LEDG-10 | All negative tests pass **in the release profile** | profile coverage | `cargo test --locked --release --all-targets` | ✅ CI | ✅ green |
+| order contract | `ALL_CHECKS` is in the documented `CheckId` order | unit | `cargo test --release --lib invariants::order` | ❌ W0 | ✅ green |
+| config | The new key is required, annotated, and has a provenance row | existing tests, re-run | `cargo test --test config_strict --test provenance` | ✅ exists | ✅ green — the config leaf turned out to be a **five**-part agreement (see audit below) |
 
-*Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
+*Status: ✅ green · ✅ green · ❌ red · ⚠️ flaky*
 
 ---
 
@@ -111,15 +112,73 @@ no external service.
    including doc comments.** `tests/numeric_det.rs` reads whole lines and its
    allowlist is exactly `["numeric.rs", "config.rs"]`.
 
+
+---
+
+## Validation Audit 2026-08-31
+
+| Metric | Count |
+|--------|-------|
+| Requirements in phase | 10 |
+| Automated (COVERED) | 10 |
+| Requirement-ID tags present in source | 10 / 10 |
+| Gaps found | 1 (blocking) |
+| Resolved | 1 |
+| Escalated to manual-only | 0 |
+
+**Every requirement is tagged and greppable.** Unlike Phase 1 — where CORE-01 was fully
+covered but carried no requirement-ID tag, so an audit would have scored it MISSING — all ten
+LEDG identifiers appear in `src/` and `tests/`. No traceability gap.
+
+### The gap this audit's own standard exposed
+
+The per-requirement test map above lists LEDG-05 as covered by
+`cargo test --release --test ledger_props goods_identity_holds`. It was — for the *honest*
+path. What no test covered was the check **failing**: `check_goods`'s entire body could be
+replaced with `if true { return Ok(()); }` and all 239 tests stayed green.
+
+That is the difference between "a requirement has a test" and "a requirement has a test that
+can fail", and it is the distinction this phase's ROADMAP criterion 2 is written around. The
+map was accurate and still insufficient. Closed by `e0ee1b4` with two negative tests, one per
+arm of the check, each mutation-proven and independently re-verified.
+
+### Corrections to this contract's own assumptions
+
+- **The config leaf is a FIVE-part agreement, not four.** The draft listed
+  `config/baseline.toml`, the `src/config.rs` schema, `config/PROVENANCE.md` and the
+  schema-leaf agreement. Wave 1 lost twelve lib tests to `missing field 'invariants'` because
+  `src/config.rs` also carries a hand-written `FULL` TOML fixture (line ~503) that must gain
+  the key in the same commit. Carried forward for every later config-touching phase.
+- **Two `clippy.toml` entries this contract implied are impossible.** `RefCell` (used in
+  `src/rng.rs` behind `cfg(debug_assertions)`), `Arc` (`prop_oneof!` expands to code naming
+  it) and `std::process::id` (used by two tests for unique temp paths) each fire where check 4b
+  forbids the `#[allow]` that would silence them. Source guards cover the intent instead;
+  recorded in `clippy.toml`.
+- **One planned verify command was invalid syntax.** `cargo test --locked --lib books
+  invariants` exits non-zero with `unexpected argument 'invariants'` **without running any
+  test** — a command that silently never runs is a false green. Corrected to
+  `--lib -- books invariants` and logged so later waves did not copy it.
+
+### What actually did the work
+
+Five defects of one shape — an assertion whose stated claim is not what it measures — were
+found in this phase. **None was caught by the test suite; all five were caught by mutation.**
+The suite grew 142 → 242 tests and was green throughout every one of them.
+
+The sampling rate and per-requirement map below remain the right contract. But the phase's
+load-bearing practice turned out to be the habit the executors adopted unprompted: break the
+thing a check is supposed to catch, confirm the check fails, revert. Recommended as standing
+practice for Phases 3-11, and cheap — each proof cost one build.
+
 ---
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 10s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 10s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved 2026-08-31
