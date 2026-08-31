@@ -1,0 +1,56 @@
+// The shared-borrow-across-mutation probe: leg 1 of LEDG-02, as an executed
+// compile failure rather than a claim.
+//
+// A .txt file, so cargo never compiles it as part of a normal build.
+// tests/lints.sh copies it to tests/_borrow_probe.rs, asserts that
+// `cargo build --tests` then exits NON-zero AND that the output names E0502,
+// and removes it again under the existing trap.
+//
+// **The last line is load-bearing and must not be tidied away.** The probe
+// proves nothing unless the shared borrow is still live at the moment of the
+// mutation, and what keeps it live is that it is USED afterwards. Delete
+// `let _observed = watcher.total_money();` and the borrow ends before
+// `transfer` is called, the file compiles, and the check silently passes
+// forever while proving nothing. The same is true of any "simplification" that
+// replaces `watcher` with a direct call, or that moves the observation above
+// the transfer.
+//
+// **The E0502 assertion is load-bearing too.** A bare "the build failed"
+// assertion would stay green if this probe stopped compiling for an unrelated
+// reason — a renamed constructor, a changed `transfer` signature, a moved
+// config key. That is the same hole tests/lints.sh already documents for its
+// own check 2.
+
+use std::path::Path;
+
+use sim::books::Books;
+use sim::config;
+use sim::ids::{Account, FirmId, FirmSlot, HouseholdId};
+use sim::money::Money;
+
+#[test]
+fn observing_the_books_mid_transaction() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
+    let (params, _hash) = config::load(&path).expect("the shipped configuration loads");
+    let mut books = Books::new(&params).expect("the shipped endowment sums to the stock");
+
+    let from = Account::Household(HouseholdId(0));
+    let to = Account::Firm(FirmId {
+        slot: FirmSlot(0),
+        generation: 0,
+    });
+
+    // A shared view of the books, taken before the transfer and held live.
+    let watcher = &books;
+
+    // The mutation. This is the line the borrow checker must refuse:
+    //   error[E0502]: cannot borrow `books` as mutable because it is also
+    //                 borrowed as immutable
+    books
+        .transfer(from, to, Money::from_cents(100))
+        .expect("an endowed household can pay a hundred cents");
+
+    // The use that keeps the shared borrow alive across the mutation above.
+    // Without this line the borrow ends early and the probe compiles.
+    let _observed = watcher.total_money();
+}

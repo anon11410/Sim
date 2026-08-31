@@ -1,0 +1,44 @@
+// The fault-injection reachability probe: LEDG-10, as an executed compile
+// failure rather than a doc comment.
+//
+// A .txt file, so cargo never compiles it as part of a normal build.
+// tests/lints.sh copies it to tests/_cfg_test_probe.rs, asserts that
+// `cargo build --tests` then exits NON-zero AND that the output names E0599,
+// and removes it again under the existing trap.
+//
+// **What this proves.** `Books`'s corruption vocabulary — `corrupt_silent_cash`
+// and its three siblings — sits behind the crate's own test configuration and
+// is visible to this crate's unit tests only. Plan 02-05 rests entirely on that
+// boundary: every seeded fault in the negative tests is written with a method
+// that no consumer of `sim` can call. An integration test under `tests/`
+// reaches this crate exactly as any other consumer does, so a probe that calls
+// one from here and fails to compile is the executed form of that claim.
+//
+// **The E0599 assertion is load-bearing.** A bare "the build failed" assertion
+// would stay green if this probe stopped compiling for an unrelated reason — a
+// renamed constructor or a moved config key — and the check would then be
+// reporting nothing about the boundary it exists to guard. E0599 is
+// specifically "no method named ... found", which is the diagnostic that says
+// the method does not exist in a non-test build of the library.
+//
+// The converse direction is asserted in the crate's own unit tests: the same
+// methods ARE callable from `#[cfg(test)] mod corrupt` in src/books.rs, so the
+// boundary is proved in both directions rather than one.
+
+use std::path::Path;
+
+use sim::books::Books;
+use sim::config;
+use sim::ids::{Account, HouseholdId};
+
+#[test]
+fn the_fault_injection_vocabulary_is_reachable_from_an_integration_test() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
+    let (params, _hash) = config::load(&path).expect("the shipped configuration loads");
+    let mut books = Books::new(&params).expect("the shipped endowment sums to the stock");
+
+    // The line the compiler must refuse:
+    //   error[E0599]: no method named `corrupt_silent_cash` found for struct
+    //                 `Books` in the current scope
+    books.corrupt_silent_cash(Account::Household(HouseholdId(0)), -1);
+}

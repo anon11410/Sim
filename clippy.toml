@@ -39,6 +39,49 @@ disallowed-types = [
   { path = "rand::rngs::SmallRng", reason = "non-portable generator: rand reserves the right to replace the algorithm, so a cargo update would silently re-trajectory every run. CORE-03 clause (b) bans it by USE because rand 0.10.2 makes the type unconditional and it cannot be removed from the graph" },
   { path = "rand::rngs::Xoshiro256PlusPlus", reason = "not the project generator; only ChaCha8Rng carries rand's reproducibility guarantee (CORE-03 clause (b))" },
   { path = "rand::rngs::Xoshiro128PlusPlus", reason = "not the project generator; only ChaCha8Rng carries rand's reproducibility guarantee (CORE-03 clause (b))" },
+  # --- LEDG-02 leg 3: no shared mutability, no reference counting ---
+  #
+  # The books are never observable mid-transaction. An exclusive `&mut self`
+  # borrow is only the first of the four legs that make that true, and it is the
+  # leg a shared-mutability wrapper walks straight around: a `RefCell` field
+  # hands out a mid-transaction view through a shared reference, and the borrow
+  # checker never sees it. The ledger dissolves the two-mutable-borrows problem
+  # by having ONE OWNER rather than by sharing one — every balance lives behind
+  # a private field of a single `Books` value, addressed by ID.
+  #
+  # TWO TYPES ARE DELIBERATELY ABSENT FROM THIS LIST. Both were tried, both made
+  # the clean tree fail check 1, and neither can be silenced: tests/lints.sh
+  # check 4b forbids a lint exemption anywhere in tracked Rust source.
+  #
+  #   `std::cell::RefCell` — src/rng.rs uses it for the debug-only sub-stream
+  #   re-entry guard (D-04, T-1-13), and clippy lints the debug build.
+  #
+  #   `std::sync::Arc` — proptest's `prop_oneof!` expands to code naming Arc,
+  #   so every strategy in tests/ledger_props.rs and tests/money_props.rs trips
+  #   the ban at the macro call site. Measured: 9 diagnostics across 7 call
+  #   sites. The type appears in an expansion, never in this project's own
+  #   source, and rewriting the strategies to dodge a macro would be changing
+  #   tested code to suit a lint.
+  #
+  # Do not add either. Guard 7c in tests/lints.sh covers both instead: RefCell
+  # appears under src/ only in src/rng.rs, and Arc appears under src/ not at all.
+  #
+  # THAT SUBSTITUTION IS NOT AN EXACT EQUIVALENT, in either direction. Guard 7c
+  # is STRONGER in one dimension: a source grep catches a type alias or a
+  # re-export that a type-path lint cannot see. It is NARROWER in another: it
+  # searches src/ only, whereas an entry here, linted under --all-targets, would
+  # also have reached tests/ and benches/. For Arc that narrowing is the whole
+  # point — tests/ is exactly where the macro expansion lives — and for RefCell
+  # it is a real gap. Read guard 7c as a substitute with known edges, not as the
+  # same rule spelled differently.
+  { path = "std::cell::Cell", reason = "shared mutability defeats LEDG-02 leg 1: a Cell field is writable through a shared reference, so the borrow checker cannot stop a mid-transaction observer. The ledger has one owner, not one shared value" },
+  { path = "std::cell::UnsafeCell", reason = "shared mutability defeats LEDG-02 leg 1: the ledger has one owner, not one shared value. The crate also forbids unsafe code, so nothing here could soundly use it" },
+  { path = "std::cell::OnceCell", reason = "shared mutability defeats LEDG-02 leg 1: the ledger has one owner, not one shared value" },
+  { path = "std::cell::LazyCell", reason = "shared mutability defeats LEDG-02 leg 1: the ledger has one owner, not one shared value" },
+  { path = "std::rc::Rc", reason = "IDs never references (CLAUDE.md): agents are Vec elements addressed by index, and Rc<RefCell<..>> is named in the brief as the signal the design went wrong. Reference counting also makes behaviour address-dependent (LEDG-02)" },
+  { path = "std::sync::Mutex", reason = "the simulation is single-threaded (CORE-04); interior mutability behind a lock is still interior mutability, and it defeats LEDG-02 leg 1" },
+  { path = "std::sync::RwLock", reason = "the simulation is single-threaded (CORE-04); interior mutability behind a lock is still interior mutability, and it defeats LEDG-02 leg 1" },
+  { path = "std::sync::OnceLock", reason = "the simulation is single-threaded (CORE-04); a value written through a shared reference is an LEDG-02 hole however few times it is written" },
 ]
 
 disallowed-methods = [

@@ -20,6 +20,19 @@
 #   3. every configured path fires      (hole: clippy ignores unresolvable paths in silence)
 #   4. the escape hatches are absent    (hole: a type alias makes use sites invisible)
 #
+# Plan 02-06 added three more, for the parts of LEDG-01, LEDG-02 and LEDG-10
+# that no compiler and no lint can express:
+#
+#   5. a shared borrow held across a mutation does not compile   (LEDG-02 leg 1)
+#   6. the fault-injection vocabulary is unreachable from tests/ (LEDG-10)
+#   7. eight source guards, each proved to fire first            (LEDG-01/02/10)
+#
+# Checks 5 and 6 assert the specific DIAGNOSTIC CODE and not merely that the
+# build failed, for the reason check 2 documents about itself. Check 7's guards
+# are each proved to match a known hazard fixture before being asserted absent
+# from the tree, because a grep pattern with a typo matches nothing and is
+# indistinguishable from a clean tree — the grep form of the hole check 3 closes.
+#
 # No error-suppressing fallbacks anywhere: a missing input must surface as a
 # failure, never default into a passing comparison.
 
@@ -37,6 +50,15 @@ HAZARD_SRC="tests/lint-probes/hazard.rs.txt"
 PROBE_DST="tests/_probe.rs"
 HAZARD_DST="tests/_hazard.rs"
 
+BORROW_PROBE_SRC="tests/lint-probes/books_borrow_probe.rs.txt"
+BORROW_PROBE_DST="tests/_borrow_probe.rs"
+CFG_PROBE_SRC="tests/lint-probes/books_cfg_test_probe.rs.txt"
+CFG_PROBE_DST="tests/_cfg_test_probe.rs"
+
+# The two ledger modules checks 7a–7h are written against.
+BOOKS_SRC="src/books.rs"
+INVARIANTS_SRC="src/invariants.rs"
+
 fail() {
     echo "FAIL: $*" >&2
     exit 1
@@ -46,7 +68,7 @@ fail() {
 # interrupt. A negative test that leaves its own hazard behind has poisoned
 # the working tree it was meant to protect.
 cleanup() {
-    rm -f "$PROBE_DST" "$HAZARD_DST"
+    rm -f "$PROBE_DST" "$HAZARD_DST" "$BORROW_PROBE_DST" "$CFG_PROBE_DST"
 }
 trap cleanup EXIT INT TERM
 
@@ -70,8 +92,10 @@ assert_absent() {
     fi
 }
 
-for f in "$PROBE_SRC" "$HAZARD_SRC" clippy.toml; do
+for f in "$PROBE_SRC" "$HAZARD_SRC" "$BORROW_PROBE_SRC" "$CFG_PROBE_SRC" \
+         "$BOOKS_SRC" "$INVARIANTS_SRC" clippy.toml; do
     [ -f "$f" ] || fail "required input $f is missing"
+    [ -s "$f" ] || fail "required input $f is empty — a guard over an empty file passes trivially"
 done
 
 # ---------------------------------------------------------------------------
@@ -230,4 +254,63 @@ assert_absent "a non-portable generator type is named under src/" \
 
 echo "  check 4: no alias, no exemption, no lookup wrapper, no non-portable generator"
 
-echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, and no alias, exemption or non-portable generator escapes it"
+# ---------------------------------------------------------------------------
+# 5. A shared borrow held across a mutation does not compile (LEDG-02 leg 1).
+# ---------------------------------------------------------------------------
+# The ROADMAP phrases LEDG-02's criterion as "a test observing the books
+# mid-transaction is impossible to write". Asserting that proves nothing; this
+# check writes the test and watches the compiler refuse it.
+#
+# The E0502 assertion is load-bearing rather than decorative. A bare "the build
+# failed" assertion would stay green when the probe stops compiling for an
+# unrelated reason — a renamed constructor, a changed `transfer` signature — and
+# the check would then be reporting the wrong thing's health. That is the same
+# hole this script already documents for its own check 2.
+
+cp "$BORROW_PROBE_SRC" "$BORROW_PROBE_DST"
+# A non-zero status is the EXPECTED outcome, so it is captured and examined
+# rather than allowed to abort the script.
+set +e
+BORROW_OUT=$(cargo build --tests 2>&1)
+BORROW_STATUS=$?
+set -e
+rm -f "$BORROW_PROBE_DST"
+
+if [ "$BORROW_STATUS" -eq 0 ]; then
+    fail "a shared borrow of the books held live across a call to transfer COMPILED — LEDG-02 leg 1 does not hold, or the probe's trailing use of the borrow was tidied away so the borrow no longer spans the mutation"
+fi
+case "$BORROW_OUT" in
+    *"E0502"*) ;;
+    *) fail "the borrow probe failed to build but produced no E0502 — it broke for an unrelated reason (a renamed constructor, a changed signature), so this check is reporting nothing about the borrow rule" ;;
+esac
+echo "  check 5: a shared borrow held across a mutation is refused with E0502"
+
+# ---------------------------------------------------------------------------
+# 6. The fault-injection vocabulary is unreachable from tests/ (LEDG-10).
+# ---------------------------------------------------------------------------
+# Plan 02-05's negative tests rest entirely on the corruption methods being
+# visible to the crate's own unit tests and to nothing else. That claim was
+# otherwise only written in a doc comment; this check executes it.
+#
+# E0599 ("no method named ... found") is asserted specifically, for the reason
+# check 5 gives: a bare build failure would stay green if the probe broke for an
+# unrelated reason, and the boundary would go unguarded while the gate stayed
+# green.
+
+cp "$CFG_PROBE_SRC" "$CFG_PROBE_DST"
+set +e
+CFG_OUT=$(cargo build --tests 2>&1)
+CFG_STATUS=$?
+set -e
+rm -f "$CFG_PROBE_DST"
+
+if [ "$CFG_STATUS" -eq 0 ]; then
+    fail "an integration test CALLED a fault-injection method on Books — the corruption vocabulary has escaped the crate's own test configuration and is reachable by any consumer of sim"
+fi
+case "$CFG_OUT" in
+    *"E0599"*) ;;
+    *) fail "the reachability probe failed to build but produced no E0599 — it broke for an unrelated reason, so this check is reporting nothing about the fault-injection boundary" ;;
+esac
+echo "  check 6: the fault-injection vocabulary is refused from tests/ with E0599"
+
+echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, and both compile-fail probes are refused with the exact diagnostic they name"
