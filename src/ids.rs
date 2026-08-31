@@ -67,6 +67,62 @@ pub enum Account {
     Firm(FirmId),
 }
 
+// --- Rendered form ---------------------------------------------------------
+//
+// Every address here renders through `Display` so that an invariant halt can
+// name the offending agent inline (LEDG-09). The messages are `thiserror`
+// format strings, which render a nested field through its `Display` impl, so
+// without these an address in a halt message either does not compile or
+// degrades to a debug dump.
+//
+// Two properties make these load-bearing rather than cosmetic.
+//
+// **The firm form carries the generation.** A halt naming slot 3 without
+// saying which occupant is ambiguous across a Phase 10 respawn — precisely the
+// aliasing the generation was put in the identity to prevent, reintroduced at
+// the point a human reads the message. `firm:3:0` and `firm:3:1` are different
+// strings because they are different firms.
+//
+// **The rendered form contains no path, no host name, no wall-clock reading
+// and no process id.** A halt message reaches stderr and is read next to a
+// diffed log; TICK-06 forbids all four from anything a run emits, and these
+// forms carry integer identifiers and nothing else.
+
+impl std::fmt::Display for HouseholdId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "household:{}", self.0)
+    }
+}
+
+impl std::fmt::Display for FirmSlot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "firm-slot:{}", self.0)
+    }
+}
+
+impl std::fmt::Display for GoodId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "good:{}", self.0)
+    }
+}
+
+impl std::fmt::Display for FirmId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "firm:{}:{}", self.slot.0, self.generation)
+    }
+}
+
+impl std::fmt::Display for Account {
+    /// Delegates to the inner identity rather than re-spelling its form, so
+    /// there is exactly one place either address shape can drift.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Account::Household(household) => household.fmt(f),
+            Account::Firm(firm) => firm.fmt(f),
+        }
+    }
+}
+
 /// One arena slot: the generation currently occupying it, and the occupant.
 #[derive(Debug, Clone)]
 struct SlotRecord<T> {
@@ -341,5 +397,38 @@ mod tests {
         let mut accounts = vec![firm, household];
         accounts.sort();
         assert_eq!(accounts, vec![household, firm]);
+    }
+
+    // --- Rendered form (LEDG-09) ------------------------------------------
+    //
+    // Full-string equality, never `contains`: a `contains` assertion passes
+    // against a debug dump, which is the exact degradation these impls exist
+    // to prevent.
+
+    #[test]
+    fn every_address_renders_in_its_pinned_form() {
+        assert_eq!(HouseholdId(12).to_string(), "household:12");
+        assert_eq!(FirmSlot(3).to_string(), "firm-slot:3");
+        assert_eq!(GoodId(0).to_string(), "good:0");
+        assert_eq!(fid(3, 0).to_string(), "firm:3:0");
+        assert_eq!(
+            Account::Household(HouseholdId(12)).to_string(),
+            "household:12"
+        );
+        assert_eq!(Account::Firm(fid(3, 0)).to_string(), "firm:3:0");
+    }
+
+    #[test]
+    fn two_generations_of_one_slot_render_differently() {
+        // A halt naming only the slot is ambiguous across a Phase 10 respawn,
+        // so the generation is part of the rendered form and not only of the
+        // identity.
+        assert_eq!(fid(3, 0).to_string(), "firm:3:0");
+        assert_eq!(fid(3, 1).to_string(), "firm:3:1");
+        assert_ne!(fid(3, 0).to_string(), fid(3, 1).to_string());
+        assert_ne!(
+            Account::Firm(fid(3, 0)).to_string(),
+            Account::Firm(fid(3, 1)).to_string()
+        );
     }
 }
