@@ -6,9 +6,16 @@
 //! grep is necessary but **not sufficient**: an optional field type defaults to
 //! absent with no attribute to find. The only check that actually proves the
 //! requirement is to delete every leaf key in turn and assert each deletion is
-//! rejected by name. The two source assertions at the bottom are the cheap
+//! rejected by name. The source assertions at the bottom are the cheap
 //! complement, and they live inside the test binary rather than in a shell
 //! script so they cannot be skipped by running the suite without the linter.
+//!
+//! `every_key_is_required` has one blind spot, and
+//! `the_schema_and_the_shipped_config_name_the_same_leaves` is what covers it:
+//! deleting keys from the shipped file can only ever see fields that are
+//! ALREADY in the shipped file. A field added to `Params` with a default and
+//! not added to `baseline.toml` is invisible to it. The two tests close the
+//! gap from opposite directions.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -333,12 +340,69 @@ fn no_serde_defaults_anywhere_in_src() {
     for path in &sources {
         let text = fs::read_to_string(path)
             .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-        assert!(
-            !text.contains("serde(default"),
-            "{} carries an explicit serde default — a hidden hardcoded parameter",
-            path.display()
-        );
+
+        // Line-based and attribute-order agnostic. A whole-file
+        // `contains("serde(default")` matched `#[serde(default)]` and
+        // `#[serde(default = "…")]` and NOTHING ELSE: every one of
+        //     #[serde(rename = "x", default)]
+        //     #[serde(skip_serializing_if = "…", default)]
+        // is a real serde default that walked straight through it.
+        //
+        // Whitespace is stripped so a multi-line attribute is judged on its
+        // own line rather than on an accident of formatting.
+        for (number, line) in text.lines().enumerate() {
+            let stripped: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+            let is_default = stripped.contains("(default")
+                || stripped.contains(",default")
+                || stripped == "default";
+            assert!(
+                !(stripped.contains("serde(") && is_default),
+                "{}:{} carries a serde default — a hidden hardcoded parameter: {}",
+                path.display(),
+                number + 1,
+                line.trim()
+            );
+        }
     }
+}
+
+/// The schema and the shipped file must name the SAME leaf keys.
+///
+/// `every_key_is_required` deletes each leaf of `config/baseline.toml` in turn
+/// and asserts the deletion is rejected — so it can only ever see fields that
+/// are already in the shipped file. A field added to `Params` with a default
+/// and *not* added to `baseline.toml` satisfies both that test and the
+/// attribute grep above, and is exactly the hidden hardcoded parameter CORE-10
+/// forbids.
+///
+/// Round-tripping a parsed `Params` back through TOML closes it from the other
+/// direction: the serialised schema and the shipped file are compared as leaf
+/// sets, so a schema field with no config key fails here, and a config key with
+/// no schema field fails at the parse (`deny_unknown_fields`).
+#[test]
+fn the_schema_and_the_shipped_config_name_the_same_leaves() {
+    let raw = shipped();
+
+    let shipped_document: toml::Value =
+        toml::from_str(&raw).expect("the shipped config must parse as TOML");
+    let mut shipped_leaves = Vec::new();
+    leaf_paths(&shipped_document, &[], &mut shipped_leaves);
+    shipped_leaves.sort();
+
+    let params: Params = toml::from_str(&raw).expect("the shipped config must parse as Params");
+    let serialised = toml::to_string(&params).expect("Params must re-serialise");
+    let schema_document: toml::Value =
+        toml::from_str(&serialised).expect("the re-serialised schema must parse");
+    let mut schema_leaves = Vec::new();
+    leaf_paths(&schema_document, &[], &mut schema_leaves);
+    schema_leaves.sort();
+
+    assert_eq!(
+        schema_leaves, shipped_leaves,
+        "the schema and the shipped config disagree on their leaf keys — a field \
+         in `Params` with no key in baseline.toml is a hidden default that \
+         `every_key_is_required` cannot see"
+    );
 }
 
 #[test]
