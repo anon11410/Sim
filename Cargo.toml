@@ -7,7 +7,16 @@ edition = "2024"
 rand      = { version = "0.10.2", default-features = false, features = ["std", "chacha"] }
 serde     = { version = "1.0.229", features = ["derive"] }
 toml      = "1.1.4"
-sha2      = "0.10.9"          # NOT 0.11 -- 0.11's digest type has no LowerHex impl (D-25)
+# Pinned by the reproducibility contract, NOT by an API constraint. The comment
+# here used to read "NOT 0.11 -- 0.11's digest type has no LowerHex impl
+# (D-25)", which `config_hash` in src/config.rs contradicts in as many words:
+# it builds the hex byte by byte precisely "so the idiom survives a future sha2
+# major bump", and never touches a LowerHex impl on the digest type. Blocking an
+# upgrade for a reason the code went out of its way to neutralise leaves the next
+# reader believing a constraint that does not exist. The caret range already
+# excludes 0.11; the lockfile is what actually pins the build, and a major bump
+# gets reviewed like any other.
+sha2      = "0.10.9"
 thiserror = "2.0.20"
 clap      = { version = "4.6.6", features = ["derive"] }
 anyhow    = "1.0.104"
