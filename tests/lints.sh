@@ -645,8 +645,27 @@ assert_absent_in "guard 7g: a function in the ledger returns a mutable reference
 #
 #     The runtime half of this rule is the no-path assertion in plan 02-05's
 #     message tests; this is the source half, and neither is sufficient alone.
-#     Scoped to the production half of the file: the unit-test modules below
+#     Scoped to the production half of each file: the unit-test modules below
 #     legitimately load the shipped configuration from a path.
+#
+#     BOTH LEDGER MODULES ARE SEARCHED, and the second is not optional. Every
+#     `Violation` variant that carries a posting interpolates it through
+#     `render_posting`, which formats it with `impl Display for Posting` — and
+#     that impl lives in src/books.rs. Searching src/invariants.rs alone covers
+#     the outer half of the string and leaves the inner half unguarded, which is
+#     where roughly half of every halt message is actually rendered.
+#
+#     A NOTE ON WHY THIS GREP IS THE WHOLE ENFORCEMENT for the process id.
+#     `std::process::id` is not in clippy.toml's disallowed-methods, and adding
+#     it makes the clean tree fail check 1: tests/config_strict.rs:275 and
+#     tests/tracer_end_to_end.rs:21 both call it to build a unique temporary
+#     path, which is legitimate test scaffolding and neither on the behaviour
+#     path nor in a halt message. Verified by adding the entry — `error: use of
+#     a disallowed method `std::process::id` --> tests/config_strict.rs:275`.
+#     Check 4b forbids the `#[allow(...)]` that would silence it, so there is no
+#     legal escape. Same class of exclusion as the RefCell and Arc entries
+#     clippy.toml documents, and handled the same way: the lint entry is
+#     declined and this source guard carries the rule.
 ENVIRONMENT_PATTERN='env::|env!|(^|[^A-Za-z0-9_])Path(Buf)?[^A-Za-z0-9_]|SystemTime|Instant|std::process'
 assert_fires 7h "$ENVIRONMENT_PATTERN" 7 '        let home = std::env::var("HOME");
         let dir = env!("CARGO_MANIFEST_DIR");
@@ -658,8 +677,11 @@ assert_fires 7h "$ENVIRONMENT_PATTERN" 7 '        let home = std::env::var("HOME
 assert_ignores 7h "$ENVIRONMENT_PATTERN" '    let path_of_least_resistance = 1;
     let instant = 1;
     write!(f, "tick {tick}: {posting}")'
-assert_absent_in "guard 7h: the violation module names a path, clock or process type. A halt message carries integers and identities only — a wall-clock reading or a path in it breaks determinism before it is an information-disclosure question (TICK-06)" \
-    "$ENVIRONMENT_PATTERN" "$INVARIANTS_PRODUCTION"
+BOOKS_PRODUCTION=$(production_source "$BOOKS_SRC")
+[ -n "$BOOKS_PRODUCTION" ] || fail "guard 7h: the ledger's production half is empty — a guard over an empty set passes trivially"
+assert_absent_in "guard 7h: the ledger or the violation module names a path, clock or process type. A halt message carries integers and identities only — a wall-clock reading, a process id or a path in it breaks determinism before it is an information-disclosure question (TICK-06). Both files are searched because a violation renders its posting through impl Display for Posting, which lives in $BOOKS_SRC" \
+    "$ENVIRONMENT_PATTERN" "$INVARIANTS_PRODUCTION
+$BOOKS_PRODUCTION"
 
 
 # 7i. Every fault-injection method is behind the test gate (LEDG-10).

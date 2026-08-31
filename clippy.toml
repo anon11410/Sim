@@ -85,6 +85,21 @@ disallowed-types = [
 ]
 
 disallowed-methods = [
+  # --- TICK-06: no environment in anything a run emits ---
+  #
+  # ONE TYPE IS DELIBERATELY ABSENT, on the same terms as the RefCell and Arc
+  # exclusions above. `std::process::id` belongs on this list by the rule --- a
+  # process id is environment, not a number the model produced --- but adding it
+  # makes the clean tree fail tests/lints.sh check 1: tests/config_strict.rs and
+  # tests/tracer_end_to_end.rs both call it to build a unique temporary path,
+  # which is legitimate test scaffolding on no behaviour path and in no halt
+  # message. Verified by adding the entry: `error: use of a disallowed method
+  # `std::process::id` --> tests/config_strict.rs:275`. Check 4b forbids the
+  # `#[allow(...)]` that would silence it, so there is no legal escape.
+  # tests/lints.sh guard 7h carries the rule instead, over the production half
+  # of src/invariants.rs AND src/books.rs --- and a source grep is the only
+  # thing that could: clippy is blind to a process id reached through a
+  # `write!` in an impl it is not looking at.
   { path = "std::time::SystemTime::now", reason = "the tick number is the only clock in this system; wall-clock time may appear solely in run_meta.json, which is excluded from the determinism diff" },
   { path = "std::time::Instant::now", reason = "the tick number is the only clock in this system; wall-clock time may appear solely in run_meta.json, which is excluded from the determinism diff" },
   # --- f64: 33 methods carrying std's unspecified-precision marker ---
