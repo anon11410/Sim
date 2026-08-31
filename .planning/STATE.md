@@ -115,6 +115,7 @@ None yet.
 - Lengnick Table 1 values are grade B (from an annotated replication, not read from the paper) — verification is an explicit Phase 1 task (CORE-11). It de-risks the widest-sensitivity parameter group in the model.
 - Phases 6, 8 and 11 are research-flagged for `--research-phase` at planning time. Phase 1 carries a light flag (RNG sub-stream keying; `f64` vs `i64` milli-units for `expected_demand`).
 - All initial conditions and the total money stock are unspecified in every source — deliberately deferred to Phase 11, which means Phases 5–10 run on provisional placeholder values.
+- V-3a (before Phase 10 BANK-04): entrant_size_ratio_ppm ships 800000 (0.8x) while its own SOURCE field cites size-replacing-firms = 0.2. Three non-equivalent readings — transcription error, a derived 1 - 0.2 (which would regrade the row B to C), or a misread source parameter. Not resolved from memory per D-20; recorded as config/PROVENANCE.md open item V-3a. NOT covered by any existing gate: Phase 6 SC6 scopes to Lengnick Table 1 rows and this is a BAM row, while ROADMAP Phase 10 SC5 already asserts 0.8x as settled fact. Must be decided before BANK-04 consumes it.
 - V-4 (Phase 6): the sense of theta=0.75 is contradictory — the graded table reads it as P(firm CONSIDERS a price change) while the shipped key is named price_inaction_prob_ppm, the complementary event. Which reading is right changes price-move frequency threefold. Flagged in config/PROVENANCE.md open item V-4, not corrected from memory per D-20.
 
 ## Deferred Items

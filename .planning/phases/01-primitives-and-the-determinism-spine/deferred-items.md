@@ -14,4 +14,22 @@
   one-shot repo-wide `cargo fmt` ran (whitespace and layout only: derive lists
   broken one-per-line, struct literals expanded; 112 debug / 110 release tests
   still pass, clippy still clean), and `cargo fmt --check` is now a CI step, so
-  the item cannot silently re-open. No deferred items remain open in this phase.
+  the item cannot silently re-open.
+
+## From the code-review fix pass (2026-08-31)
+
+- **V-3a — `entrant_size_ratio_ppm` contradicts its own cited source.** The key
+  ships `800000` (0.8x) while its `SOURCE:` field cites
+  `size-replacing-firms = 0.2`. Three readings are possible and they are not
+  equivalent: a transcription error; a deliberate derivation of `1 - 0.2`
+  (which would regrade the row B to C, since a derived value is not a read
+  value); or a misread source parameter. Deliberately NOT resolved from model
+  memory, per D-20. Recorded as open item **V-3a** in `config/PROVENANCE.md`
+  with the action for each reading.
+
+  **OPEN — needs a human decision, and nothing currently forces it.** Phase 6
+  SC6 covers only "Lengnick Table 1 rows" and this is a BAM row, so it falls
+  outside that gate; meanwhile ROADMAP Phase 10 SC5 already asserts "0.8x" as
+  settled fact. The check must happen before **BANK-04** consumes the value.
+  Raised as warning W1 of `01-VERIFICATION.md`, which is also what caught this
+  file previously claiming no items remained open.
