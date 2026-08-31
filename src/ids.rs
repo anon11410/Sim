@@ -100,7 +100,28 @@ pub struct FirmArena<T> {
 impl<T> FirmArena<T> {
     /// Build an arena from an occupant per slot. Every slot starts at
     /// generation 0, and slot `i` holds `occupants[i]`.
+    ///
+    /// # Panics
+    ///
+    /// If `occupants` is longer than [`u16::MAX`]. [`FirmSlot`] is a `u16`, so
+    /// a longer arena would issue `FirmSlot(0)` for both index 0 and index
+    /// 65 536 — two distinct firms carrying one identity, which is precisely
+    /// the aliasing this module exists to make impossible. The bound is
+    /// enforced here, at construction, because that is where the length is
+    /// attributable; `live_ids` below is then a total function with no lossy
+    /// cast in it. This is a real `assert!` and not a debug-only one for the
+    /// same reason `pack_stream_key`'s field asserts are: a silent alias
+    /// corrupts a run without failing anything.
     pub fn with_occupants(occupants: Vec<T>) -> Self {
+        assert!(
+            occupants.len() <= u16::MAX as usize,
+            "a FirmArena holds at most {} slots, but {} occupants were supplied; \
+             FirmSlot is a u16 and a wider index would silently alias two firms \
+             onto one identity",
+            u16::MAX,
+            occupants.len()
+        );
+
         FirmArena {
             slots: occupants
                 .into_iter()
@@ -175,12 +196,20 @@ impl<T> FirmArena<T> {
     ///
     /// The arena has no vacancy concept — every slot is occupied for the whole
     /// run — so the result always has one identity per slot.
+    ///
+    /// The index conversion is fallible-and-checked rather than a lossy `as`
+    /// cast. It cannot fail, because [`FirmArena::with_occupants`] bounds the
+    /// length at construction and no operation on the arena changes it — but
+    /// `as` would express that reasoning as silence, and a truncating index is
+    /// exactly how two firms end up sharing one [`FirmId`].
     pub fn live_ids(&self) -> Vec<FirmId> {
         self.slots
             .iter()
             .enumerate()
             .map(|(index, record)| FirmId {
-                slot: FirmSlot(index as u16),
+                slot: FirmSlot(
+                    u16::try_from(index).expect("arena length is bounded at construction"),
+                ),
                 generation: record.generation,
             })
             .collect()
@@ -267,6 +296,36 @@ mod tests {
         assert_eq!(arena.get(two), Some(&30));
         assert_eq!(arena.get(four), Some(&50));
         assert_eq!(arena.len(), 5);
+    }
+
+    // --- The u16 slot boundary (CR-03) ------------------------------------
+    //
+    // `live_ids` used to narrow the enumeration index with `index as u16`, and
+    // `with_occupants` bounded nothing, so an arena of 65 537 slots returned
+    // `FirmSlot(0)` for both index 0 and index 65 536: two distinct firms
+    // carrying one identity, from the type whose entire purpose is that this
+    // cannot happen. `clippy::cast_possible_truncation` lives in `pedantic` and
+    // is not enabled, so nothing in the tree caught it.
+
+    #[test]
+    fn an_arena_at_the_slot_limit_issues_one_distinct_identity_per_slot() {
+        let arena = FirmArena::with_occupants(vec![0u32; u16::MAX as usize]);
+        let ids = arena.live_ids();
+
+        assert_eq!(ids.len(), u16::MAX as usize);
+        assert_eq!(ids.first(), Some(&fid(0, 0)));
+        assert_eq!(ids.last(), Some(&fid(u16::MAX - 1, 0)));
+        // Strictly ascending is the compact form of "no two slots alias".
+        assert!(ids.windows(2).all(|w| w[0] < w[1]));
+    }
+
+    #[test]
+    #[should_panic(expected = "silently alias")]
+    fn an_arena_past_the_slot_limit_is_refused_at_construction() {
+        // One past the bound. Before the fix this constructed happily and the
+        // aliasing surfaced later, in `live_ids`, where the length is no longer
+        // attributable to whoever supplied it.
+        let _ = FirmArena::with_occupants(vec![0u32; u16::MAX as usize + 1]);
     }
 
     #[test]
