@@ -25,7 +25,7 @@
 #
 #   5. a shared borrow held across a mutation does not compile   (LEDG-02 leg 1)
 #   6. the fault-injection vocabulary is unreachable from tests/ (LEDG-10)
-#   7. eight source guards, each proved to fire first            (LEDG-01/02/10)
+#   7. ten source guards, each proved to fire first              (LEDG-01/02/10)
 #
 # Checks 5 and 6 assert the specific DIAGNOSTIC CODE and not merely that the
 # build failed, for the reason check 2 documents about itself. Check 7's guards
@@ -55,7 +55,7 @@ BORROW_PROBE_DST="tests/_borrow_probe.rs"
 CFG_PROBE_SRC="tests/lint-probes/books_cfg_test_probe.rs.txt"
 CFG_PROBE_DST="tests/_cfg_test_probe.rs"
 
-# The two ledger modules checks 7a–7h are written against.
+# The two ledger modules checks 7a-7j are written against.
 BOOKS_SRC="src/books.rs"
 INVARIANTS_SRC="src/invariants.rs"
 
@@ -374,12 +374,12 @@ esac
 echo "  check 6: the fault-injection vocabulary is refused from tests/ with E0599"
 
 # ---------------------------------------------------------------------------
-# 7. Eight source guards, each proved to fire before it is trusted to be silent.
+# 7. Ten source guards, each proved to fire before it is trusted to be silent.
 # ---------------------------------------------------------------------------
 # These are the parts of LEDG-01, LEDG-02 and LEDG-10 that no compiler and no
 # lint can express.
 #
-# THE DISCIPLINE, and it applies to all eight. A grep pattern with a typo
+# THE DISCIPLINE, and it applies to all ten. A grep pattern with a typo
 # matches nothing, and a pattern that matches nothing looks exactly like a
 # pattern that is silent because the tree is clean — the grep form of the hole
 # check 3 exists to close for clippy's silently-unresolvable paths. So every
@@ -661,6 +661,60 @@ assert_ignores 7h "$ENVIRONMENT_PATTERN" '    let path_of_least_resistance = 1;
 assert_absent_in "guard 7h: the violation module names a path, clock or process type. A halt message carries integers and identities only — a wall-clock reading or a path in it breaks determinism before it is an information-disclosure question (TICK-06)" \
     "$ENVIRONMENT_PATTERN" "$INVARIANTS_PRODUCTION"
 
-echo "  check 7: eight source guards (7a callbacks, 7b/7c shared mutability, 7d compiled-out invariants, 7e one gate read, 7f/7g balance writes, 7h halt-message environment), each proved to fire on a hazard fixture first"
 
-echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, both compile-fail probes are refused with the exact diagnostic they name, and eight source guards are silent on a tree each of them was first watched firing on"
+# 7i. Every fault-injection method is behind the test gate (LEDG-10).
+#
+#     Check 6 executes the boundary from the outside — the probe calls all four
+#     corruption methods from tests/ and the build is refused with E0599. This
+#     is the source half, and it guards the case the probe cannot: a FIFTH
+#     method added outside the `#[cfg(test)] impl Books` block. The probe names
+#     the four that exist; it cannot name one nobody has written yet, and the
+#     four it does name would still fail to resolve, so check 6 would still be
+#     green while a method that writes state the public API cannot reach had
+#     shipped in the library.
+#
+#     Counted two ways and compared. The first counts every `corrupt_*`
+#     DECLARATION in the file, with line comments stripped so a doc comment
+#     naming one does not inflate it. The second counts only those inside a
+#     block opened by a column-zero `#[cfg(test)]` and closed by a column-zero
+#     `}`. A declaration outside the gate makes the two disagree.
+CORRUPT_DECL_PATTERN='fn[[:space:]]+corrupt_[A-Za-z0-9_]+'
+assert_fires 7i "$CORRUPT_DECL_PATTERN" 3 '    pub(crate) fn corrupt_silent_cash(&mut self, who: Account, delta_cents: i64) {
+    pub fn corrupt_appended_posting(&mut self, draft: Posting) -> Posting {
+    fn corrupt_stock(&mut self, slot: AccountSlot, units: i64) {'
+assert_ignores 7i "$CORRUPT_DECL_PATTERN" '        books.corrupt_silent_cash(household(0), -1);
+    fn corrupted(&self) -> bool { false }'
+set +e
+CORRUPT_COUNT=$(printf '%s\n' "$BOOKS_CODE" | grep -cE "$CORRUPT_DECL_PATTERN")
+GREP_STATUS=$?
+set -e
+if [ "$GREP_STATUS" -gt 1 ]; then
+    fail "guard 7i: could not count the fault-injection declarations (grep exit $GREP_STATUS)"
+fi
+if [ "$CORRUPT_COUNT" -eq 0 ]; then
+    fail "guard 7i: $BOOKS_SRC declares no corrupt_* method — the guard has nothing to protect and the negative tests in src/invariants.rs have nothing to seed a fault with"
+fi
+GATED_COUNT=$(awk '/^#\[cfg\(test\)\]/{g=1} /^}/{g=0} g && /fn[[:space:]]+corrupt_/{n++} END{print n+0}' "$BOOKS_SRC")
+if [ "$CORRUPT_COUNT" -ne "$GATED_COUNT" ]; then
+    fail "guard 7i: $BOOKS_SRC declares $CORRUPT_COUNT corrupt_* methods but only $GATED_COUNT of them sit inside a #[cfg(test)] block. Every method that writes state the public API cannot reach must be invisible to consumers of sim (LEDG-10); check 6 proves the four that exist are refused from tests/, and this is what stops a fifth being added outside the gate"
+fi
+
+# 7j. The probe calls every one of them.
+#
+#     Check 6 asserts the build fails with E0599, which is a claim about the
+#     methods the probe NAMES. If the probe names three of four, the fourth can
+#     leave the test configuration with check 6 still green.
+set +e
+PROBE_CALLS=$(grep -coE 'books\.corrupt_[A-Za-z0-9_]+\(' "$CFG_PROBE_SRC")
+GREP_STATUS=$?
+set -e
+if [ "$GREP_STATUS" -gt 1 ]; then
+    fail "guard 7j: could not count the probe's corruption calls (grep exit $GREP_STATUS)"
+fi
+if [ "$PROBE_CALLS" -ne "$CORRUPT_COUNT" ]; then
+    fail "guard 7j: $CFG_PROBE_SRC calls $PROBE_CALLS corruption methods but $BOOKS_SRC declares $CORRUPT_COUNT. Check 6's E0599 assertion only covers the methods the probe names, so an unnamed one could leave the #[cfg(test)] block with check 6 still reporting success"
+fi
+
+echo "  check 7: ten source guards (7a callbacks, 7b/7c shared mutability, 7d compiled-out invariants, 7e one gate read, 7f/7g balance writes, 7h halt-message environment, 7i/7j the fault-injection gate), each proved to fire on a hazard fixture first"
+
+echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, no alias, exemption or non-portable generator escapes it, both compile-fail probes are refused with the exact diagnostic they name, and ten source guards are silent on a tree each of them was first watched firing on"

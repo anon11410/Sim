@@ -6,13 +6,25 @@
 // `cargo build --tests` then exits NON-zero AND that the output names E0599,
 // and removes it again under the existing trap.
 //
-// **What this proves.** `Books`'s corruption vocabulary — `corrupt_silent_cash`
-// and its three siblings — sits behind the crate's own test configuration and
-// is visible to this crate's unit tests only. Plan 02-05 rests entirely on that
-// boundary: every seeded fault in the negative tests is written with a method
-// that no consumer of `sim` can call. An integration test under `tests/`
-// reaches this crate exactly as any other consumer does, so a probe that calls
-// one from here and fails to compile is the executed form of that claim.
+// **What this proves.** `Books`'s corruption vocabulary sits behind the crate's
+// own test configuration and is visible to this crate's unit tests only. Plan
+// 02-05 rests entirely on that boundary: every seeded fault in the negative
+// tests is written with a method that no consumer of `sim` can call. An
+// integration test under `tests/` reaches this crate exactly as any other
+// consumer does, so a probe that calls one from here and fails to compile is the
+// executed form of that claim.
+//
+// **EVERY method in the vocabulary is called, each on its own line.** This
+// probe used to name only `corrupt_silent_cash`, which left the other three
+// unguarded: moving `corrupt_appended_posting` out of the `#[cfg(test)]` block
+// and making it `pub` — to reach it from an integration test, say — would leave
+// `corrupt_silent_cash` still unresolvable, so the build would still fail with
+// E0599 and check 6 would still print its success line, while a method that
+// writes state the public API cannot reach had shipped in the library. One call
+// per line means any single one of them resolving turns that line green and
+// changes what the compiler says. Guard 7i in tests/lints.sh pins the other
+// half: every `corrupt_*` method declared in src/books.rs sits inside a
+// `#[cfg(test)]` block, so a fifth one cannot be added outside the gate.
 //
 // **The E0599 assertion is load-bearing.** A bare "the build failed" assertion
 // would stay green if this probe stopped compiling for an unrelated reason — a
@@ -27,9 +39,9 @@
 
 use std::path::Path;
 
-use sim::books::Books;
+use sim::books::{Books, Posting, PostingKind};
 use sim::config;
-use sim::ids::{Account, HouseholdId};
+use sim::ids::{Account, FirmId, FirmSlot, GoodId, HouseholdId};
 
 #[test]
 fn the_fault_injection_vocabulary_is_reachable_from_an_integration_test() {
@@ -37,8 +49,31 @@ fn the_fault_injection_vocabulary_is_reachable_from_an_integration_test() {
     let (params, _hash) = config::load(&path).expect("the shipped configuration loads");
     let mut books = Books::new(&params).expect("the shipped endowment sums to the stock");
 
-    // The line the compiler must refuse:
+    let household = Account::Household(HouseholdId(0));
+    let firm = Account::Firm(FirmId {
+        slot: FirmSlot(0),
+        generation: 0,
+    });
+    let draft = Posting {
+        seq: 0,
+        kind: PostingKind::Transfer,
+        debit: household,
+        credit: firm,
+        debit_cents: 500,
+        credit_cents: 501,
+        good: GoodId(0),
+        units_out: 0,
+        units_in: 0,
+        cash_residual_cents: 0,
+        goods_residual_units: 0,
+    };
+
+    // The four lines the compiler must refuse, each on its own so that any one
+    // of them resolving changes the diagnostic:
     //   error[E0599]: no method named `corrupt_silent_cash` found for struct
     //                 `Books` in the current scope
-    books.corrupt_silent_cash(Account::Household(HouseholdId(0)), -1);
+    books.corrupt_silent_cash(household, -1);
+    books.corrupt_recorded_cash(firm, household, 100, -1);
+    books.corrupt_conserving_deficit(household, firm, 100);
+    books.corrupt_appended_posting(draft);
 }
