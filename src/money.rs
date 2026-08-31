@@ -1,4 +1,4 @@
-//! Integer money. Cents, never floats.
+//! Integer money. Cents, never floats (CORE-01).
 //!
 //! `Money` wraps a **private** `i64` count of cents. The private field is the
 //! guard: money cannot be conjured outside this module, only moved. The single

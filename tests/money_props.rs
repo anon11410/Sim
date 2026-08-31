@@ -1,4 +1,5 @@
-//! Property tests for the money invariants that a unit test cannot pin down.
+//! Property tests for the money invariants that a unit test cannot pin down
+//! (CORE-01).
 //!
 //! This file reaches `Money` through the library surface — `use sim::money::…`
 //! — rather than through a private path, which is also part of CORE-08's proof
