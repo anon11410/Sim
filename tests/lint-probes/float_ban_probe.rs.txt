@@ -76,3 +76,14 @@ pub fn probe_f32_atanh(x: f32) -> f32 { x.atanh() } // BANNEDCALL
 pub fn probe_f32_to_degrees(x: f32) -> f32 { x.to_degrees() } // BANNEDCALL
 pub fn probe_f32_to_radians(x: f32) -> f32 { x.to_radians() } // BANNEDCALL
 
+
+// ---- the clock, banned for the same reason as the floats ----
+// These two are not float methods, but they are disallowed-methods entries in
+// the same list and the same silence applies: clippy ignores a path it cannot
+// resolve without any diagnostic. Before these lines the count comparison in
+// tests/lints.sh check 3 covered the 58 callable float bans and ZERO clock
+// bans, so `std::time::SystemTime::now` and `std::time::Instant::now` were the
+// only entries in clippy.toml whose resolution nothing asserted -- and the
+// wall-clock ban is one of the top determinism hazards in CLAUDE.md.
+pub fn probe_systemtime_now() -> std::time::SystemTime { std::time::SystemTime::now() } // BANNEDCALL
+pub fn probe_instant_now() -> std::time::Instant { std::time::Instant::now() } // BANNEDCALL

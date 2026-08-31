@@ -121,13 +121,21 @@ esac
 echo "  check 2: an injected hazard in tests/ is blocked by both lists"
 
 # ---------------------------------------------------------------------------
-# 3. Every configured float path actually fires.
+# 3. Every configured disallowed-methods path actually fires.
 # ---------------------------------------------------------------------------
 # Clippy accepts a disallowed-methods path it cannot resolve WITHOUT any
-# diagnostic, so a typo in one of the 66 float paths looks exactly like a
-# working ban. The probe calls every entry that resolves on stable exactly
-# once; comparing the diagnostic count against the marked call-site count
-# turns that silence into a failure.
+# diagnostic, so a typo in one of the 68 paths looks exactly like a working
+# ban. The probe calls every entry that resolves on stable exactly once;
+# comparing the diagnostic count against the marked call-site count turns that
+# silence into a failure.
+#
+# The probe covers the two CLOCK bans as well as the floats. It did not
+# originally, and that was the coverage hole: `std::time::SystemTime::now` and
+# `std::time::Instant::now` were the only entries in clippy.toml whose
+# resolution nothing asserted, while the wall-clock ban is one of the top
+# determinism hazards in CLAUDE.md. Verified by corrupting the Instant path to
+# `Instannt`: this check now reports 59 diagnostics against 60 call sites and
+# fails, where before it would have passed green.
 #
 # Both numbers are computed — neither is written here as a literal, or the
 # assertion would drift out of date the first time an entry is added.
@@ -167,7 +175,7 @@ if [ "$FIRED" -ne "$MARKED" ]; then
     echo "  disallowed-method diagnostics  : $FIRED" >&2
     fail "a configured disallowed-methods path did not fire — clippy ignores a path it cannot resolve in silence, so a typo in clippy.toml looks identical to a working ban"
 fi
-echo "  check 3: all $FIRED resolvable float bans fired, one per marked call site"
+echo "  check 3: all $FIRED resolvable method bans (floats + the clock) fired, one per marked call site"
 
 # ---------------------------------------------------------------------------
 # 4. The escape hatches are absent.
@@ -209,4 +217,4 @@ assert_absent "a non-portable generator type is named under src/" \
 
 echo "  check 4: no alias, no exemption, no lookup wrapper, no non-portable generator"
 
-echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable float bans fire, and no alias, exemption or non-portable generator escapes it"
+echo "OK: the lint gate blocks a hashed collection and a banned float method in tests/, all $FIRED resolvable method bans (floats + the clock) fire, and no alias, exemption or non-portable generator escapes it"
