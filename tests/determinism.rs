@@ -48,7 +48,7 @@ use sim::config::Params;
 use sim::invariants::CheckSet;
 use sim::log::{
     Decision, EVENTS_FILE, PROVENANCE_FILE, RUN_META_FILE, Rule, RunWriter, Sink, TICKS_FILE,
-    provenance_header, schema_json, ticks_header,
+    first_difference, provenance_header, schema_json, ticks_header,
 };
 use sim::phases::Ctx;
 use sim::rng::Rngs;
@@ -1105,4 +1105,253 @@ fn the_binary_halts_on_a_liveness_violation_at_tick_zero() {
         ticks_header(),
         "the halted run's one line is not the header",
     );
+}
+
+// ---------------------------------------------------------------------------
+// TICK-09, the review half: the committed golden run.
+// ---------------------------------------------------------------------------
+
+/// The golden window, in ticks.
+///
+/// Fifty, for two independent reasons recorded in `tests/golden/README.md`, the
+/// second of which is a floor this test asserts against the shipped cadence.
+const GOLDEN_TICKS: u32 = 50;
+
+/// The committed golden run, spelled absolutely for the same reason [`CONFIG`]
+/// is.
+const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden");
+
+/// The one command that writes it — named in this test's failure message so a
+/// reader whose change was deliberate does not have to go and find out how to
+/// accept it, and does not hand-edit the committed bytes instead.
+const GOLDEN_REGEN_COMMAND: &str = "bash tests/regenerate_golden.sh";
+
+/// That script, read so its substitution can be compared with this one.
+const GOLDEN_SCRIPT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/regenerate_golden.sh");
+
+/// The one non-run file committed in the golden directory.
+const GOLDEN_NOTE: &str = "README.md";
+
+/// Invoke the built binary against `config`, into `out`, at the seed that
+/// configuration asks for.
+///
+/// No `--seed`. The seed is a shipped parameter like any other, so the golden
+/// run and the shipped configuration tell one story and a deliberate seed
+/// change arrives here as a diff rather than being overridden away.
+fn run_binary_with_config(config: &Path, out: &Path) {
+    assert_cmd::Command::cargo_bin("sim")
+        .expect("the sim binary is built for this test run")
+        .arg("--config")
+        .arg(config)
+        .arg("--out")
+        .arg(out)
+        .assert()
+        .success();
+}
+
+/// A fresh 50-tick run reproduces the committed golden bytes, file for file.
+///
+/// **What this adds to the three claims above.** They prove a run reproduces
+/// *itself*: same seed, same bytes, in one process and across two. None of them
+/// notices when a deliberate rule change moves the whole trajectory — which is
+/// exactly what Phases 5 to 11 will do, one rule at a time. A committed short
+/// run turns that into a diff someone reads and accepts.
+///
+/// **And it carries the debug-and-release agreement claim.** The build runs the
+/// whole suite in both profiles, and both compare against the SAME committed
+/// artifact. So a byte that depended on the build profile — the generator
+/// module's `#[cfg(debug_assertions)]` re-entry guard reaching a written byte,
+/// say — makes exactly one of the two passes red. That is the cross-profile
+/// claim delivered without spawning a build from inside a test, which would
+/// deadlock on the build lock.
+///
+/// **This test never writes into the golden directory.** Regeneration is
+/// [`GOLDEN_REGEN_COMMAND`], a separate operator action. A test that
+/// regenerated and then compared would be comparing the generator with itself
+/// and would stay green however far the economy drifted — the same discipline
+/// `schema/schema.json` and `clippy.toml` are already held to.
+///
+/// **The configuration is derived, not committed.** One leaf of the shipped
+/// file moves, exactly as the criterion-6 test moves the liveness leaf, and for
+/// the same reason: a committed second baseline would drift from the shipped
+/// parameters and would then be certifying a configuration nobody runs. The
+/// count assertion is the point of the exercise — against a reworded
+/// configuration a blind substitution is a silent no-op and this test would
+/// fail with a confusing message about file length rather than a clear one
+/// about the substitution.
+#[test]
+fn the_golden_run_reproduces() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let params = configured();
+
+    // The window's floor, asserted against the shipped cadence rather than
+    // remembered: below two planning cycles a cadence-length effect is
+    // invisible inside the golden run, and nothing else would say so.
+    assert!(
+        GOLDEN_TICKS >= 2 * params.sim.month_days,
+        "the golden window is {} ticks but the shipped cadence is a {}-day \
+         month; below two planning cycles a cadence-length effect is invisible \
+         in the golden run",
+        GOLDEN_TICKS,
+        params.sim.month_days,
+    );
+    // The golden run and the shipped configuration tell one story: the run is
+    // made at the shipped seed, so a deliberate seed change lands here as a
+    // trajectory diff instead of being silently overridden.
+    assert_eq!(
+        params.sim.seed, SEED,
+        "the shipped seed moved; the golden run is made at the shipped seed, so \
+         this is a deliberate change that must be regenerated and reviewed:\n    \
+         {GOLDEN_REGEN_COMMAND}",
+    );
+
+    // --- The one-leaf substitution -------------------------------------
+    let shipped = String::from_utf8(read_nonempty(Path::new(CONFIG)))
+        .expect("the shipped configuration is text");
+    let shipped_leaf = format!("\nticks = {DECADE_TICKS}\n");
+    let golden_leaf = format!("\nticks = {GOLDEN_TICKS}\n");
+
+    assert_eq!(
+        shipped.matches(&shipped_leaf).count(),
+        1,
+        "expected exactly one `ticks` leaf to override; the shipped \
+         configuration was reworded, and this substitution would have been a \
+         silent no-op that ran a full decade and failed below with a message \
+         about file length",
+    );
+    let overridden = shipped.replace(&shipped_leaf, &golden_leaf);
+    assert_eq!(
+        overridden.matches(&golden_leaf).count(),
+        1,
+        "the override did not put the leaf back exactly once",
+    );
+    assert!(
+        !overridden.contains(&shipped_leaf),
+        "the run length is still a decade after the override",
+    );
+    assert_eq!(
+        overridden.lines().count(),
+        shipped.lines().count(),
+        "the override changed the shape of the file, not one leaf in it",
+    );
+    assert_eq!(
+        overridden.matches("# GRADE:").count(),
+        shipped.matches("# GRADE:").count(),
+        "the override lost a source grade — it was a re-serialisation, not a \
+         textual substitution",
+    );
+
+    // The regeneration script must move the SAME leaf. If it did not, the bytes
+    // it writes and the bytes this test produces would come from two different
+    // configurations, and the comparison below would fail for a reason no
+    // message here could explain.
+    let script = String::from_utf8(read_nonempty(Path::new(GOLDEN_SCRIPT)))
+        .expect("the regeneration script is text");
+    for leaf in [&shipped_leaf, &golden_leaf] {
+        let leaf = leaf.trim_matches('\n');
+        assert!(
+            script.contains(leaf),
+            "{GOLDEN_REGEN_COMMAND} does not mention `{leaf}`, so it is not \
+             performing the substitution this test performs and the two would \
+             be generating different runs",
+        );
+    }
+
+    // --- Run it, exactly as the script does ----------------------------
+    let config = root.path().join("golden.toml");
+    std::fs::write(&config, &overridden).expect("the derived configuration writes");
+    let out = root.path().join("run");
+    run_binary_with_config(&config, &out);
+
+    // --- What is compared, enumerated rather than listed ---------------
+    let excluded: BTreeSet<String> = EXCLUDED_FROM_DIFF.iter().map(|&n| n.to_owned()).collect();
+    let diffed: BTreeSet<String> = entries(&out).difference(&excluded).cloned().collect();
+    assert!(
+        diffed.len() >= 3,
+        "the run wrote {} diffed file(s); at least the tick series, the event \
+         stream and the provenance table are due",
+        diffed.len(),
+    );
+
+    let committed = entries(Path::new(GOLDEN_DIR));
+    for name in &excluded {
+        assert!(
+            !committed.contains(name),
+            "{name} is committed in the golden directory. It is excluded from \
+             the determinism diff because it carries the compiler version \
+             string and a wall clock, and committing it would make a toolchain \
+             bump look like a change to the economy",
+        );
+    }
+    let mut expected = diffed.clone();
+    expected.insert(GOLDEN_NOTE.to_owned());
+    assert_eq!(
+        committed, expected,
+        "the golden directory holds a different set of files than a run \
+         produces. A file a run writes but the golden directory lacks has no \
+         regression signal at all; regenerate deliberately and review:\n    \
+         {GOLDEN_REGEN_COMMAND}",
+    );
+
+    // --- The comparison ------------------------------------------------
+    let mut produced_ticks = None;
+    for name in &diffed {
+        let fresh = String::from_utf8(read_nonempty(&out.join(name)))
+            .unwrap_or_else(|_| panic!("the fresh {name} is text"));
+        let golden = String::from_utf8(read_nonempty(&Path::new(GOLDEN_DIR).join(name)))
+            .unwrap_or_else(|_| panic!("the committed {name} is text"));
+
+        if let Some((line, golden_line, fresh_line)) = first_difference(&golden, &fresh) {
+            panic!(
+                "the golden run no longer reproduces: {name} differs at line {line}\n  \
+                 committed: {golden_line:?}\n  \
+                 produced:  {fresh_line:?}\n\
+                 The economy's trajectory moved. If that was deliberate, regenerate and \
+                 review the diff:\n    {GOLDEN_REGEN_COMMAND}\n\
+                 If it was not, the line above says which tick moved."
+            );
+        }
+        if name == TICKS_FILE {
+            produced_ticks = Some((golden, fresh));
+        }
+    }
+
+    // --- The window is the window it claims to be ----------------------
+    let (golden_ticks, fresh_ticks) =
+        produced_ticks.unwrap_or_else(|| panic!("{TICKS_FILE} was not among the diffed files"));
+    assert_eq!(
+        golden_ticks.lines().count(),
+        GOLDEN_TICKS as usize + 1,
+        "the committed tick series is not a header plus {GOLDEN_TICKS} ticks",
+    );
+
+    // --- And the comparison would notice ------------------------------
+    //
+    // A byte comparison that has never been watched failing is indistinguishable
+    // from one comparing a file with itself. The three comparisons above have
+    // just been made against bytes that agree, so this fabricates a
+    // disagreement in the one place a real drift would appear — a data row —
+    // and asserts the comparison reports it, at the right line, before any of
+    // this test's green is believed.
+    let mut rows: Vec<&str> = fresh_ticks.split_inclusive('\n').collect();
+    assert!(
+        rows.len() > 1,
+        "the fresh tick series has no data row to perturb"
+    );
+    const FABRICATED_ROW: &str = "0,0,0,0,0,0,0,0,0\n";
+    assert_ne!(
+        rows[1], FABRICATED_ROW,
+        "the fabricated row equals the real first data row, so perturbing with \
+         it would prove nothing",
+    );
+    rows[1] = FABRICATED_ROW;
+    let perturbed: String = rows.concat();
+    match first_difference(&golden_ticks, &perturbed) {
+        Some((2, _, fresh_line)) if fresh_line == FABRICATED_ROW => {}
+        other => panic!(
+            "the comparison did not report a fabricated change to the first \
+             data row as a difference at line 2; it reported {other:?}. Every \
+             green above was therefore proving nothing"
+        ),
+    }
 }
