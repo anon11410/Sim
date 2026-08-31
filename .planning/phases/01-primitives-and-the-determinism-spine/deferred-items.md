@@ -27,9 +27,26 @@
   memory, per D-20. Recorded as open item **V-3a** in `config/PROVENANCE.md`
   with the action for each reading.
 
-  **OPEN — needs a human decision, and nothing currently forces it.** Phase 6
-  SC6 covers only "Lengnick Table 1 rows" and this is a BAM row, so it falls
-  outside that gate; meanwhile ROADMAP Phase 10 SC5 already asserts "0.8x" as
-  settled fact. The check must happen before **BANK-04** consumes the value.
+  **OPEN — needs a human decision. GATED as of 2026-08-31, but not answered.**
   Raised as warning W1 of `01-VERIFICATION.md`, which is also what caught this
-  file previously claiming no items remained open.
+  file previously claiming no items remained open, and adjudicated as UAT test 2
+  in `01-UAT.md`.
+
+  When this was written nothing forced the check: Phase 6 SC6 covers only
+  "Lengnick Table 1 rows" and this is a BAM row, so it fell outside that gate,
+  while ROADMAP Phase 10 SC5 asserted "0.8x" as settled fact — the roadmap
+  stating as true the very thing this item holds open. Both were corrected:
+
+  - ROADMAP Phase 10 criterion 5 now references the config key
+    `bankruptcy.entrant_size_ratio_ppm` rather than the literal 0.8x, so the
+    criterion cannot be satisfied by asserting an unchecked number.
+  - ROADMAP Phase 10 criterion 6 is a new **blocking gate**: V-3a adjudicated
+    before **BANK-04** consumes the value, with the three readings enumerated
+    and the D-20 prohibition restated.
+  - ROADMAP Phase 6 criterion 6 asks that the two BAM rows (V-3, V-3a) be
+    checked on the same journal pass — that is the phase where someone has
+    access — while noting the blocking gate sits in Phase 10.
+  - `.planning/STATE.md` records the gate alongside the item.
+
+  The gate forces the check; it does not answer it. The value still requires a
+  BAM read and must not be resolved from model memory (D-20).
