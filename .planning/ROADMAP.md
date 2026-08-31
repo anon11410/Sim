@@ -60,7 +60,7 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. `cargo clippy` **fails the build** when code introduces a `HashMap`/`HashSet` on a behaviour path or calls one of the 31 non-deterministic `f64` methods; `Cargo.toml` contains no `rayon` and `rust-toolchain.toml` and `Cargo.lock` are committed.
   5. Every config value carries a source-grade annotation (A/B/C/PROJECT), asserted by the annotation test — which names any unannotated key — rather than by review. The second half of CORE-11, that the Lengnick Table 1 values are checked against the published paper with any discrepancy recorded rather than silently adopted, is **gated on Phase 6 per D-19** — primary-source access is egress-blocked here and no phase before 6 consumes the values; until that gate runs the affected rows stand marked `UNVERIFIED` in `config/PROVENANCE.md`. Deferred, not dropped: Phase 1 ships the machinery, the honest marking and the verification procedure.
 
-**Plans**: 7/8 plans executed in 4 waves
+**Plans**: 8/8 plans executed in 4 waves
 Plans:
 **Wave 1**
 
@@ -80,7 +80,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 01-07-PLAN.md — The determinism lint wall: generated ban lists, a negative test that proves they block, and CI
+- [x] 01-07-PLAN.md — The determinism lint wall: generated ban lists, a negative test that proves they block, and CI
 
 **Research**: light flag — RNG sub-stream keying scheme, and `f64` vs `i64` milli-units for `expected_demand`. Both cheap to research now, expensive to change later. Both resolved in `01-RESEARCH.md` and locked as CONTEXT.md D-01/D-02 and D-11/D-12.
 
@@ -246,7 +246,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 →
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Primitives and the Determinism Spine | 7/8 | In Progress|  |
+| 1. Primitives and the Determinism Spine | 8/8 | In Progress|  |
 | 2. Books, Journal and Invariants | 0/TBD | Not started | - |
 | 3. World, Tick Pipeline and Log Seam | 0/TBD | Not started | - |
 | 4. Python Acceptance Harness Skeleton | 0/TBD | Not started | - |

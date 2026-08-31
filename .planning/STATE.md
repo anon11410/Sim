@@ -2,17 +2,17 @@
 gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Primitives and the Determinism Spine
-status: executing
-stopped_at: Completed 01-08-PLAN.md
-last_updated: "2026-08-31T00:14:13.632Z"
+status: verifying
+stopped_at: Completed 01-07-PLAN.md
+last_updated: "2026-08-31T00:27:37.092Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 01 execution started
-state_head: e726b3274cc0bc990e6a5a59d2d2439e65488697
+state_head: 6d10d1a16861d0e2e45485b2584a4b32d45e769d
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 8
-  completed_plans: 7
+  completed_plans: 8
   percent: 0
 ---
 
@@ -29,7 +29,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 
 Phase: 01 (Primitives and the Determinism Spine) — EXECUTING
 Plan: 8 of 8
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-30 — Phase 01 execution started
 
 Progress: [░░░░░░░░░░] 0%
@@ -65,6 +65,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P05 | 10 min | 3 tasks | 6 files |
 | Phase 01 P06 | 4min | 3 tasks | 3 files |
 | Phase 01 P08 | 26 min | 3 tasks | 3 files |
+| Phase 01 P07 | 18 min | 3 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,10 @@ Recent decisions affecting current work:
 - [Phase 01]: The config hash is over raw file bytes, proved sensitive to a table reorder and to one comment character, because the comments carry the source grades CORE-11 makes load-bearing
 - [Phase 01]: Grade-B provenance rows are marked UNVERIFIED by grade, not by paper name — the no-silent-upgrade test keys off grade B so the BAM rows are held to the same honesty as the Lengnick rows — Grade B is defined as "an annotated replication citing the paper's table/equation numbers", which IS the unverified condition. Keying the test off the string "Lengnick" would have left the two equally-unread BAM rows free to be upgraded silently.
 - [Phase 01]: 21 config keys are attributed to the baseline-model paper, not the 18 stated in CONTEXT.md D-19 — the counts measure graded-table rows vs config keys and both are correct; Phase 6 works from 21 — One graded row can expand into two config keys (P(price search) / P(rationing search) is one row and two keys), and several graded rows describe rules rather than parameters and have no key at all. The key count is the set a person must actually check. Reconciliation recorded in config/PROVENANCE.md section 2.
+- [Phase 01]: The determinism ban lists are generated from the pinned toolchain's own std/core source, never typed: 31 std + 2 core = 33 distinct methods per float width, confirmed locally. f32 declares cbrt in BOTH core (unstable) and std (stable), so a naive sum gives 34 for f32 vs 33 for f64 -- the stable declaration wins and the counts match. Regenerating on any toolchain bump is mandatory: check 3's count comparison cannot detect a method that exists but was never configured. — Clippy silently ignores a disallowed-methods path it cannot resolve, so a typo in one of 66 float paths is indistinguishable from a working ban. Verified this run: corrupting f64::log2 to f64::log_2 produced no clippy warning at all and dropped the diagnostic count from 58 to 57.
+- [Phase 01]: A negative test, not a lint's existence, is what satisfies CORE-07: tests/lints.sh injects a hazard into tests/ -- the directory plain cargo clippy is blind to -- watches both ban lists fire on it, drives a 58-call-site probe and compares diagnostics to call sites, asserts the four escape hatches absent, and restores the tree under a trap. Each ban list is asserted SEPARATELY, because a bare 'the build failed' assertion stays green after one list is deleted while the other hazard still fails the build. — Two holes were reproduced first-hand and both leave the naive invocation reporting a healthy exit 0 over a broken tree: a hazard in tests/ passes 'cargo clippy' (exit 0) and fails 'cargo clippy --all-targets --all-features' (exit 101); and a type alias to a hashed collection behind #[allow(clippy::disallowed_types)] leaves clippy at exit 0, completely blind, and is caught only by the grep in check 4a.
+- [Phase 01]: The disallowed-types exemption assertion is scoped to tracked *.rs files rather than the whole repository, because the attribute has effect only in Rust source and CLAUDE.md, 01-RESEARCH.md and 01-07-PLAN.md all quote it in prose or code examples. Matching those would be matching a description of the hole rather than the hole.
+- [Phase 01]: The phase's one deferred item is closed: src/money.rs and tests/tracer_end_to_end.rs are rustfmt-clean and 'cargo fmt --check' is now a CI step, so the item cannot silently re-open. The CI workflow names no Rust version literal -- rust-toolchain.toml stays the single home of the pin, since a second copy would drift and CI would then certify a compiler the project does not use.
 
 ### Pending Todos
 
@@ -137,6 +142,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T00:13:31.310Z
-Stopped at: Completed 01-08-PLAN.md
+Last session: 2026-08-31T00:27:10.301Z
+Stopped at: Completed 01-07-PLAN.md
 Resume file: None
