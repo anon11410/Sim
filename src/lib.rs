@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod books;
 pub mod config;
 pub mod ids;
 pub mod money;
