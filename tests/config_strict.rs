@@ -253,6 +253,71 @@ fn hash_is_stable_across_repeated_computation() {
     }
 }
 
+// --- Domain validation is reached through `load`, not just available ------
+//
+// CR-02: `load` used to read, hash and parse, plus one money-headroom check,
+// and accept every other parameter exactly as written. A `validate` that exists
+// but is never called is worth nothing, so this exercises the public entry
+// point against a real file rather than calling `Params::validate` directly —
+// the unit tests in `src/config.rs` cover the individual bounds.
+
+/// Write `text` to a uniquely-named temp file and return its path.
+fn temp_config(name: &str, text: &str) -> PathBuf {
+    let path = std::env::temp_dir().join(format!(
+        "sim-config-strict-{}-{name}.toml",
+        std::process::id()
+    ));
+    fs::write(&path, text).expect("the temp config must be writable");
+    path
+}
+
+#[test]
+fn load_accepts_the_shipped_config() {
+    config::load(Path::new(CONFIG)).expect("the shipped config must load");
+}
+
+#[test]
+fn load_rejects_out_of_domain_parameters_at_run_start() {
+    // Each of these loaded cleanly before, and the binary printed a tracer line
+    // and exited 0 on all four at once.
+    let cases: [(&str, &str, &str); 5] = [
+        ("zero-households", "households = 200", "households = 0"),
+        ("huge-ticks", "ticks = 3650", "ticks = 99999999"),
+        (
+            "negative-money",
+            "total_money_cents = 2000000",
+            "total_money_cents = -2000000",
+        ),
+        (
+            "nan-demand",
+            "initial_expected_demand = 330.0",
+            "initial_expected_demand = nan",
+        ),
+        ("too-many-firms", "firms = 20", "firms = 70000"),
+    ];
+
+    for (name, from, to) in cases {
+        let mutated = shipped().replace(from, to);
+        assert_ne!(
+            mutated,
+            shipped(),
+            "the substitution `{from}` matched nothing"
+        );
+        let path = temp_config(name, &mutated);
+
+        let error = match config::load(&path) {
+            Ok((params, _)) => panic!("`{to}` was accepted by load: {params:?}"),
+            Err(error) => error,
+        };
+        assert!(
+            matches!(error, config::ConfigError::Domain { .. }),
+            "`{to}` was rejected, but not as a domain violation: {error:?}"
+        );
+
+        fs::remove_file(&path).expect("the temp config must be removable");
+    }
+}
+
 // --- The two source assertions, inside the test binary --------------------
 
 #[test]
