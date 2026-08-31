@@ -596,4 +596,209 @@ proptest! {
             }
         }
     }
+
+    /// `produced − consumed − Σstock` is zero for every carried good after
+    /// **every** operation of any generated sequence (LEDG-05).
+    ///
+    /// Asserted directly from the accessors rather than by running `check_goods`
+    /// — which asserts the same identity — on purpose. A property that only
+    /// calls the check under test proves the check is self-consistent, not that
+    /// the ledger is correct: weaken `check_goods` to `Ok(())` and a
+    /// check-calling property still passes on a ledger that is losing units.
+    /// This one does not.
+    ///
+    /// The loop runs over `books.goods()` rather than over [`CARRIED_GOOD`], so
+    /// it widens by itself when Phase 5 (PROD-01) widens the table.
+    #[test]
+    fn goods_identity_holds(ops in any_ops()) {
+        let (mut books, _checks) = small_books();
+
+        for (index, op) in ops.iter().enumerate() {
+            apply(*op, &mut books);
+
+            for &good in books.goods() {
+                let produced = books.produced(good);
+                let consumed = books.consumed(good);
+                let stock = books.total_stock(good);
+
+                prop_assert_eq!(
+                    produced - consumed - stock,
+                    0,
+                    "good {:?}: produced {} − consumed {} − stock {} is not zero \
+                     after operation {} ({:?})",
+                    good,
+                    produced,
+                    consumed,
+                    stock,
+                    index,
+                    op
+                );
+            }
+        }
+    }
+
+    /// The residuals accumulated from the **posting legs** agree with the same
+    /// quantities recomputed from the **balances** after every operation
+    /// (LEDG-04, LEDG-05).
+    ///
+    /// **This is the property that states the design directly.** Everything else
+    /// in this phase rests on the two conservation sources being genuinely
+    /// independent: `record` advances the residuals from the legs of the posting
+    /// it is handed, while the produced and consumed totals and the balance
+    /// vectors are advanced from the *arguments* of the operations. That
+    /// independence is what makes `check_money` and `check_goods` non-vacuous
+    /// (research Pitfall 9), and it is asserted here rather than assumed.
+    ///
+    /// A change that derived one source from the other — recomputing `produced`
+    /// by walking the journal at check time, or calling `total_money()` inside
+    /// `record` — would leave both conservation checks passing forever while
+    /// comparing a number against itself. It would not leave this property
+    /// meaningful, which is why the comparison is written out on both sides here
+    /// instead of being read off a check's verdict.
+    ///
+    /// Note what is *not* asserted: that either quantity is zero. Zero is the
+    /// conservation claim and lives in
+    /// [`total_money_is_conserved_under_any_operation_sequence`] and
+    /// [`goods_identity_holds`]. The claim here is weaker and sharper —
+    /// **whatever** the books think, the two sources think the same thing.
+    #[test]
+    fn posting_residuals_agree_with_the_balance_derived_quantities(ops in any_ops()) {
+        let (mut books, _checks) = small_books();
+
+        for (index, op) in ops.iter().enumerate() {
+            apply(*op, &mut books);
+
+            let posting_derived_cents = books.cash_residual_cents();
+            let balance_derived_cents =
+                books.total_money().cents() - books.opening_stock().cents();
+
+            prop_assert_eq!(
+                posting_derived_cents,
+                balance_derived_cents,
+                "the postings say the cash residual is {} but the balances say {} \
+                 after operation {} ({:?})",
+                posting_derived_cents,
+                balance_derived_cents,
+                index,
+                op
+            );
+
+            for &good in books.goods() {
+                let posting_derived_units = books.goods_residual_units();
+                let balance_derived_units =
+                    books.produced(good) - books.consumed(good) - books.total_stock(good);
+
+                prop_assert_eq!(
+                    posting_derived_units,
+                    balance_derived_units,
+                    "good {:?}: the postings say the goods residual is {} but the \
+                     totals and stock say {} after operation {} ({:?})",
+                    good,
+                    posting_derived_units,
+                    balance_derived_units,
+                    index,
+                    op
+                );
+            }
+        }
+    }
+
+    /// Ending a tick empties the journal and zeroes the transaction count, and
+    /// leaves both running residuals and every balance exactly as they were.
+    ///
+    /// The two properties above assert *within* a tick. The residuals
+    /// deliberately outlive one: they measure the whole run against its opening
+    /// stock and are meaningful only cumulatively, which is why
+    /// `Books::end_of_tick` clears the journal but not them.
+    ///
+    /// **What this catches, measured by mutation rather than asserted.** Deleting
+    /// the `journal.clear()` from `end_of_tick` fails this property and no other
+    /// one in this file — every other property here runs inside a single tick,
+    /// so the boundary is the only place that bug is observable at all.
+    ///
+    /// **What the residual clause cannot catch, and why it is stated anyway.**
+    /// Adding `self.cash_residual_cents = 0` to `end_of_tick` — the exact
+    /// tick-boundary bug that would silently disable half of money conservation
+    /// from tick one onward — leaves this property green. It was tried. The
+    /// reason is structural: on the honest path the books conserve, so the cash
+    /// residual is *already* zero at every boundary, and an integration test
+    /// cannot reach the `pub(crate)` fault injection that would make it
+    /// otherwise. The clause is written because it is the claim, and a reader
+    /// should know the claim is checked; the version with teeth needs a seeded
+    /// non-zero residual and therefore belongs in the unit tests of plan 02-05
+    /// and 02-06, where the corruption vocabulary is in scope. This is recorded
+    /// in `.planning/WINDOWS.md` rather than left for someone to rediscover.
+    ///
+    /// The tick boundary is generated rather than fixed, so it falls in every
+    /// position within a sequence.
+    #[test]
+    fn ending_a_tick_leaves_the_residuals_and_the_balances_untouched(
+        steps in prop::collection::vec((any_op(), any::<bool>()), 1..24),
+    ) {
+        let (mut books, _checks) = small_books();
+        let addresses: Vec<Account> = books.accounts().collect();
+
+        for (index, (op, end_the_tick)) in steps.iter().enumerate() {
+            apply(*op, &mut books);
+
+            if !end_the_tick {
+                continue;
+            }
+
+            let cash_residual_before = books.cash_residual_cents();
+            let goods_residual_before = books.goods_residual_units();
+            let cash_before: Vec<Option<Money>> =
+                addresses.iter().map(|&who| books.cash_of(who)).collect();
+            let stock_before: Vec<Option<i64>> = addresses
+                .iter()
+                .map(|&who| books.stock_of(who, CARRIED_GOOD))
+                .collect();
+
+            books.end_of_tick();
+
+            prop_assert!(
+                books.journal().is_empty(),
+                "the journal still holds {} postings after the tick closed at step {}",
+                books.journal().len(),
+                index
+            );
+            prop_assert_eq!(
+                books.transactions_this_tick(),
+                0,
+                "the transaction count survived the tick boundary at step {}",
+                index
+            );
+            prop_assert_eq!(
+                books.cash_residual_cents(),
+                cash_residual_before,
+                "the tick boundary at step {} moved the cash residual",
+                index
+            );
+            prop_assert_eq!(
+                books.goods_residual_units(),
+                goods_residual_before,
+                "the tick boundary at step {} moved the goods residual",
+                index
+            );
+
+            let cash_after: Vec<Option<Money>> =
+                addresses.iter().map(|&who| books.cash_of(who)).collect();
+            let stock_after: Vec<Option<i64>> = addresses
+                .iter()
+                .map(|&who| books.stock_of(who, CARRIED_GOOD))
+                .collect();
+            prop_assert_eq!(
+                cash_after,
+                cash_before,
+                "the tick boundary at step {} moved a balance",
+                index
+            );
+            prop_assert_eq!(
+                stock_after,
+                stock_before,
+                "the tick boundary at step {} moved a stock",
+                index
+            );
+        }
+    }
 }
