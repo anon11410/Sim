@@ -1,4 +1,13 @@
-//! The CLI. Three flags, no simulation logic (CORE-08).
+//! The CLI. Three run flags, one mode flag, and no simulation logic (CORE-08).
+//!
+//! `--dump-schema` is the mode flag: it prints the generated wire-format schema
+//! to standard output and exits, running no simulation and writing no run
+//! directory. It is the operator half of a generated-and-committed artifact —
+//! the drift test compares the generator against `schema/schema.json` and never
+//! writes it, so regeneration stays a deliberate act with a reviewable diff.
+//! The command is `cargo run --locked --quiet -- --dump-schema >
+//! schema/schema.json`, and `sim::log::SCHEMA_REGEN_COMMAND` carries that
+//! string so the drift test's failure message can name it.
 //!
 //! `anyhow` appears in this file and nowhere else — the library uses typed
 //! `thiserror` errors so callers can match on them.
@@ -28,7 +37,7 @@ use serde::Serialize;
 
 use sim::books::Books;
 use sim::invariants::CheckSet;
-use sim::log::{RUN_META_FILE, RunWriter, SCHEMA_VERSION, Sink};
+use sim::log::{RUN_META_FILE, RunWriter, SCHEMA_VERSION, Sink, schema_json};
 use sim::phases::Ctx;
 use sim::rng::Rngs;
 use sim::world::World;
@@ -99,8 +108,13 @@ fn write_run_meta(dir: &Path, meta: &RunMeta<'_>) -> Result<()> {
 #[command(name = "sim", version, about)]
 struct Cli {
     /// Parameter file. The whole input, besides `--seed`.
-    #[arg(long)]
-    config: PathBuf,
+    ///
+    /// Required unless `--dump-schema` is present, and that condition is
+    /// expressed to the argument parser rather than hand-checked below: a
+    /// hand-check would report a missing configuration as a panic instead of as
+    /// a usage error.
+    #[arg(long, required_unless_present = "dump_schema")]
+    config: Option<PathBuf>,
 
     /// Override the seed in the config file. The value that runs is the value
     /// recorded (D-26) — a run must be reproducible from its own record.
@@ -110,17 +124,44 @@ struct Cli {
     /// Directory for run output. Affects no behaviour.
     #[arg(long, default_value = "runs/latest")]
     out: PathBuf,
+
+    /// Print the generated wire-format schema and exit. Runs no simulation and
+    /// writes no run directory.
+    ///
+    /// Regenerate the committed artifact with
+    /// `cargo run --locked --quiet -- --dump-schema > schema/schema.json`.
+    #[arg(long)]
+    dump_schema: bool,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // The mode flag, handled before anything is opened: no configuration is
+    // read, no run directory is created, and nothing but the schema reaches
+    // standard output. Flushed explicitly rather than left to process exit,
+    // for the reason the run log is finished explicitly below.
+    if cli.dump_schema {
+        let mut out = std::io::stdout().lock();
+        out.write_all(schema_json().as_bytes())
+            .and_then(|()| out.flush())
+            .context("writing the schema to standard output")?;
+        return Ok(());
+    }
+
+    // Present because the argument parser required it in the absence of
+    // `--dump-schema`, which returned above.
+    let config = cli
+        .config
+        .as_deref()
+        .expect("--config is required unless --dump-schema is present");
+
     // The hash goes into the run record below, which is the artefact that makes
     // a run reproducible from its own directory. Loading it here rather than
     // there keeps the whole input to a run read in one place, and guarantees the
     // hash and the parameters describe the same bytes.
-    let (params, config_sha256) = sim::config::load(&cli.config)
-        .with_context(|| format!("loading config from {}", cli.config.display()))?;
+    let (params, config_sha256) = sim::config::load(config)
+        .with_context(|| format!("loading config from {}", config.display()))?;
 
     // The effective seed: the override when present, the config value
     // otherwise. This is the value that runs, and the value that is recorded.

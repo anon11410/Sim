@@ -1,0 +1,73 @@
+{
+  "schema_version": "v1",
+  "ticks.csv": [
+    { "name": "tick", "dtype": "int64" },
+    { "name": "total_money_cents", "dtype": "int64" },
+    { "name": "firm_cash_cents", "dtype": "int64" },
+    { "name": "stock_units", "dtype": "int64" },
+    { "name": "headcount", "dtype": "int64" },
+    { "name": "transactions", "dtype": "int64" },
+    { "name": "rng_draws", "dtype": "int64" },
+    { "name": "activation_digest", "dtype": "int64" },
+    { "name": "postings", "dtype": "int64" }
+  ],
+  "provenance.csv": [
+    { "name": "tick", "dtype": "int64" },
+    { "name": "agent", "dtype": "string" },
+    { "name": "decision", "dtype": "string" },
+    { "name": "input_a", "dtype": "int64" },
+    { "name": "input_b", "dtype": "int64" },
+    { "name": "outcome", "dtype": "int64" },
+    { "name": "rule", "dtype": "string" }
+  ],
+  "events.jsonl": [
+    {
+      "event": "hire",
+      "fields": [
+        { "name": "event", "dtype": "string" },
+        { "name": "tick", "dtype": "int64" },
+        { "name": "firm", "dtype": "string" },
+        { "name": "household", "dtype": "string" },
+        { "name": "wage_cents", "dtype": "int64" }
+      ]
+    },
+    {
+      "event": "fire",
+      "fields": [
+        { "name": "event", "dtype": "string" },
+        { "name": "tick", "dtype": "int64" },
+        { "name": "firm", "dtype": "string" },
+        { "name": "household", "dtype": "string" }
+      ]
+    },
+    {
+      "event": "dividend",
+      "fields": [
+        { "name": "event", "dtype": "string" },
+        { "name": "tick", "dtype": "int64" },
+        { "name": "firm", "dtype": "string" },
+        { "name": "household", "dtype": "string" },
+        { "name": "amount_cents", "dtype": "int64" }
+      ]
+    },
+    {
+      "event": "bankruptcy",
+      "fields": [
+        { "name": "event", "dtype": "string" },
+        { "name": "tick", "dtype": "int64" },
+        { "name": "firm", "dtype": "string" },
+        { "name": "residual_cents", "dtype": "int64" }
+      ]
+    },
+    {
+      "event": "endowment",
+      "fields": [
+        { "name": "event", "dtype": "string" },
+        { "name": "tick", "dtype": "int64" },
+        { "name": "account", "dtype": "string" },
+        { "name": "cash_cents", "dtype": "int64" },
+        { "name": "units", "dtype": "int64" }
+      ]
+    }
+  ]
+}
