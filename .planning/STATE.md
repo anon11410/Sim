@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 01
 current_phase_name: Primitives and the Determinism Spine
 status: executing
-stopped_at: Completed 01-05-PLAN.md
-last_updated: "2026-08-30T23:51:54.068Z"
+stopped_at: Completed 01-06-PLAN.md
+last_updated: "2026-08-31T00:03:07.069Z"
 last_activity: 2026-08-30
 last_activity_desc: Phase 01 execution started
-state_head: 3ea4307eeddc889a8c1d61b5dd7c0807d299ae24
+state_head: 2c069c6998c4119216a8556d679c05fda8057f7f
 progress:
   total_phases: 11
   completed_phases: 0
   total_plans: 8
-  completed_plans: 5
+  completed_plans: 6
   percent: 0
 ---
 
@@ -28,7 +28,7 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 01 (Primitives and the Determinism Spine) — EXECUTING
-Plan: 6 of 8
+Plan: 7 of 8
 Status: Ready to execute
 Last activity: 2026-08-30 — Phase 01 execution started
 
@@ -63,6 +63,7 @@ Progress: [░░░░░░░░░░] 0%
 | Phase 01 P03 | 5 min | 3 tasks | 3 files |
 | Phase 01 P04 | 10 min | 3 tasks | 3 files |
 | Phase 01 P05 | 10 min | 3 tasks | 6 files |
+| Phase 01 P06 | 4min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -92,6 +93,10 @@ Recent decisions affecting current work:
 - [Phase 01]: FirmArena exposes no element-removal operation at all — not swap_remove, remove, retain, drain, truncate or pop. respawn_in_place is the only mutation of the slot vector and changes no index and no length, so BANK-03 is enforced by absence rather than by review. The arena has no vacancy concept: live_ids always returns one identity per slot.
 - [Phase 01]: src/numeric.rs contains no occurrence of the substrings powf, exp, ln or log anywhere, including in prose — its documentation is deliberately worded around them so the mechanical grep for the banned float methods needs no comment-stripping heuristic and no exception to be argued with.
 - [Phase 01]: The float-confinement test allowlist is file-level and comment-blind: a floating-point type named in a doc comment counts. src/rng.rs was reworded rather than the test loosened, because a heuristic that skips comments is one someone later widens to skip a string, then a macro. This is the module-level half of the float ban; 01-07 lint wall is the method-level half, and neither is sufficient alone.
+- [Phase 01]: MoneyRange range check is stock.checked_add(stock): the money stock must survive doubling, giving the conservation audit headroom and turning an absurd amount into a named ConfigError rather than a panic (T-1-03)
+- [Phase 01]: Config strictness is proved by deletion, not by grep: every_key_is_required removes each of the 41 leaf keys in turn and asserts each is rejected by name (Pitfall 7)
+- [Phase 01]: Ratios and probabilities enter the config as parts-per-million integers; initial_expected_demand stays the single float in the whole configuration (D-11/D-13)
+- [Phase 01]: The config hash is over raw file bytes, proved sensitive to a table reorder and to one comment character, because the comments carry the source grades CORE-11 makes load-bearing
 
 ### Pending Todos
 
@@ -128,6 +133,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-30T23:51:22.870Z
-Stopped at: Completed 01-05-PLAN.md
+Last session: 2026-08-31T00:02:56.759Z
+Stopped at: Completed 01-06-PLAN.md
 Resume file: None
