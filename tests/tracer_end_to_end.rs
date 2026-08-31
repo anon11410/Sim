@@ -124,9 +124,18 @@ fn different_seed_changes_the_draw() {
 // tick counters) is unprotected without `[profile.release] overflow-checks`.
 // A default release build was verified to wrap `i64::MAX - 1 + 6` silently.
 //
-// These two cases are the pair. The panicking one fails if anyone deletes the
-// setting; the adjacent non-panicking one is what distinguishes "overflow
+// These two cases are the pair. The panicking one observes that overflow is
+// detected; the adjacent non-panicking one is what distinguishes "overflow
 // detection works" from "all addition panics".
+//
+// WHAT THIS PAIR DOES NOT PROVE, and why the name says so. Under a plain
+// `cargo test` it carries no information about `[profile.release]` at all: the
+// `test` profile inherits `dev`, where `overflow-checks` is already on by
+// default, so deleting the setting from Cargo.toml leaves both cases green in
+// the debug run. Verified by deleting it: the debug suite stayed at 5 passed.
+// They are informative only in the `--release` pass, where the `bench` profile
+// inherits `release`. The setting ITSELF is asserted where it belongs, as a
+// fact about the manifest, by `tests/toolchain.sh` check 4b.
 //
 // Both operands go through `std::hint::black_box` so the expression is not
 // const-evaluated: without it rustc rejects the overflow at compile time and
@@ -135,7 +144,7 @@ fn different_seed_changes_the_draw() {
 
 #[test]
 #[should_panic(expected = "overflow")]
-fn raw_i64_overflow_panics_in_release() {
+fn raw_i64_overflow_panics_when_overflow_checks_are_on() {
     let lhs = std::hint::black_box(i64::MAX - 1);
     let rhs = std::hint::black_box(2i64);
     let _ = std::hint::black_box(lhs + rhs);

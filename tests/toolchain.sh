@@ -85,9 +85,35 @@ if echo "$TREE" | grep -q 'getrandom'; then
     fail "an OS-entropy crate (getrandom) is reachable from the behaviour path"
 fi
 
+# 4b. The release profile cannot silently wrap. This is the single most
+#     load-bearing line in Cargo.toml (CORE-02 / D-10): verified in research
+#     that a DEFAULT release build wrapped `i64::MAX - 1 + 6` to
+#     -9223372036854775804, a plausible negative balance that a conservation
+#     audit would report as a real number.
+#
+#     It was previously protected only by
+#     `tests/tracer_end_to_end.rs::raw_i64_overflow_panics_when_overflow_checks_are_on`,
+#     which under a plain `cargo test` is vacuous: the `test` profile inherits
+#     `dev`, where overflow-checks is already on by default. Deleting the
+#     setting left that test green in the debug run. This script — whose stated
+#     job is the reproducibility contract as checkable facts — did not check it
+#     at all, while checking four less critical facts.
+#
+#     Matched with awk rather than `grep -Pzo`, which needs a PCRE-enabled grep
+#     that is not present everywhere. The scan is stateful over the profile
+#     section so it cannot be satisfied by an `overflow-checks` line belonging
+#     to some other profile.
+if ! awk '
+    /^[[:space:]]*\[/ { in_release = ($0 ~ /^[[:space:]]*\[profile\.release\][[:space:]]*$/) }
+    in_release && /^[[:space:]]*overflow-checks[[:space:]]*=[[:space:]]*true[[:space:]]*$/ { found = 1 }
+    END { exit(found ? 0 : 1) }
+' Cargo.toml; then
+    fail "[profile.release] does not set overflow-checks = true (CORE-02 / D-10)"
+fi
+
 # 5. The toolchain pin names the verified channel.
 if ! grep -Eq '^[[:space:]]*channel[[:space:]]*=[[:space:]]*"1\.94\.1"' rust-toolchain.toml; then
     fail "rust-toolchain.toml does not pin channel 1.94.1"
 fi
 
-echo "OK: lockfile and toolchain tracked, no data-parallelism crate in the graph, no codegen override, no OS-entropy crate on the behaviour path"
+echo "OK: lockfile and toolchain tracked, no data-parallelism crate in the graph, no codegen override, no OS-entropy crate on the behaviour path, release profile checks overflow"
