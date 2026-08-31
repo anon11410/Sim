@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 6
+open_count: 9
 waived_count: 0
 fixed_count: 1
-total_count: 7
-last_updated: 2026-08-31T09:38:30.201Z
+total_count: 10
+last_updated: 2026-08-31T09:55:20.916Z
 ---
 
 # Broken Windows Ledger
@@ -22,6 +22,9 @@ last_updated: 2026-08-31T09:38:30.201Z
 | 5 | 02 | deviation | .planning/phases/02-books-journal-and-invariants/02-03-PLAN.md |  | Task 1 acceptance criterion "grep -c 'pub fn produce' src/books.rs prints 1" is unsatisfiable: the pattern is a substring of 'pub fn produced', the accessor the same plan mandates in <artifacts_produced>. It prints 2. Anchored form 'pub fn produce\\(' prints 1. Same for consume/consumed. | open |  | 2026-08-31T09:38:20.990Z |  |
 | 6 | 02 | deviation | src/invariants.rs |  | Violation carries Option<Box<Posting>> rather than Option<Posting>: a second posting-bearing variant pushed the enum past clippy::result_large_err's 128-byte threshold, which under -D warnings refuses to compile every Result in the crate that propagates a violation. Plans 02-04/02-05 construct Violations and must box the posting. | open |  | 2026-08-31T09:38:29.928Z |  |
 | 7 | 02 | deviation | tests/invariant_halt.rs |  | Modified outside plan 02-03's files_modified: its active-check sequence assertion is [MoneyConservation, Liveness] and inserting goods conservation at position two made it fail. Plan 02-04 inserts two more checks and must update the same two assertions (here and src/invariants.rs#the_gate_decides_the_exact_sequence_of_active_checks). | open |  | 2026-08-31T09:38:30.201Z |  |
+| 8 | 02 | deviation | src/books.rs |  | Plan 02-04 task 2 modified src/books.rs though its <files> lists only src/invariants.rs: check_non_negative cannot walk accounts without an enumerator (Books::accounts) and no accessor exposed the per-slot firm generations needed to build a firm Account. Also added PostError::EmptyExchange. | open |  | 2026-08-31T09:55:20.419Z |  |
+| 9 | 02 | deviation | tests/invariant_halt.rs |  | Modified outside plan 02-04's files_modified, discharging ledger entry 7: the active-check sequence assertions now read five checks with the gate on and four with it off. Behavioural claims untouched. Plans 02-05..02-07 that add a check must update the same two assertions (here and src/invariants.rs#the_gate_decides_the_exact_sequence_of_active_checks). | open |  | 2026-08-31T09:55:20.666Z |  |
+| 10 | 02 | deviation | src/invariants.rs |  | ZeroSumDetail ships 8 variants, not the 6 in plan 02-04's <artifacts_produced>: SplitParties (a one-party kind naming two accounts) and EmptyExchange (the action text's 'both legs non-zero' clause, which the six listed variants cannot express). Plan 02-05's message tests should expect eight. | open |  | 2026-08-31T09:55:20.916Z |  |
 
 ````json
 [
@@ -107,6 +110,42 @@ last_updated: 2026-08-31T09:38:30.201Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T09:38:30.201Z",
+    "resolved_at": null
+  },
+  {
+    "id": 8,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "src/books.rs",
+    "line": null,
+    "description": "Plan 02-04 task 2 modified src/books.rs though its <files> lists only src/invariants.rs: check_non_negative cannot walk accounts without an enumerator (Books::accounts) and no accessor exposed the per-slot firm generations needed to build a firm Account. Also added PostError::EmptyExchange.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T09:55:20.419Z",
+    "resolved_at": null
+  },
+  {
+    "id": 9,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "tests/invariant_halt.rs",
+    "line": null,
+    "description": "Modified outside plan 02-04's files_modified, discharging ledger entry 7: the active-check sequence assertions now read five checks with the gate on and four with it off. Behavioural claims untouched. Plans 02-05..02-07 that add a check must update the same two assertions (here and src/invariants.rs#the_gate_decides_the_exact_sequence_of_active_checks).",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T09:55:20.666Z",
+    "resolved_at": null
+  },
+  {
+    "id": 10,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "src/invariants.rs",
+    "line": null,
+    "description": "ZeroSumDetail ships 8 variants, not the 6 in plan 02-04's <artifacts_produced>: SplitParties (a one-party kind naming two accounts) and EmptyExchange (the action text's 'both legs non-zero' clause, which the six listed variants cannot express). Plan 02-05's message tests should expect eight.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T09:55:20.916Z",
     "resolved_at": null
   }
 ]
