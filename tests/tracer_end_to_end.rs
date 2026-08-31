@@ -160,3 +160,69 @@ fn raw_i64_at_the_maximum_does_not_panic() {
         "one step below the edge must not panic"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The two HELD-OUT overflow sites (01-UAT.md test 4).
+//
+// The pair above overflows a raw `i64` at ONE site, in the test function's own
+// body. `01-VERIFICATION.md` abstained on the backstop truth "`overflow-checks`
+// applies to every arithmetic site" for exactly the right reason: one site is
+// evidence about that site, not a universal quantifier over all of them.
+//
+// These two close the gap at the two places where the check could plausibly
+// NOT follow the call site, because `-C overflow-checks` is applied when MIR is
+// built rather than when it is codegen'd:
+//
+//   (a) across an `#[inline(always)]` call boundary — the addition is written in
+//       one function and executed inside another;
+//   (b) inside a generic — the addition is written once, against `T: Add`, and
+//       monomorphised at `i64` by the caller.
+//
+// Both are still same-crate, so what they establish is that the profile setting
+// reaches inlined and monomorphised MIR in THIS crate. That is the claim the
+// project actually depends on: goods units, headcounts and tick counters are
+// raw `i64` and will be added inside small helpers and generic code, not only
+// in straight-line function bodies.
+//
+// The same caveat as the pair above applies unchanged: under a plain
+// `cargo test` these carry no information about `[profile.release]`, because the
+// `test` profile inherits `dev` where `overflow-checks` is on by default. They
+// are informative in the `--release` pass. CI runs both profiles.
+// ---------------------------------------------------------------------------
+
+/// (a) The addition lives here; the panic must occur in the caller's frame.
+#[inline(always)]
+fn add_across_an_inline_boundary(lhs: i64, rhs: i64) -> i64 {
+    lhs + rhs
+}
+
+/// (b) The addition is written once against `T: Add` and monomorphised at `i64`.
+fn add_in_a_generic<T: std::ops::Add<Output = T>>(lhs: T, rhs: T) -> T {
+    lhs + rhs
+}
+
+#[test]
+#[should_panic(expected = "overflow")]
+fn raw_i64_overflow_panics_across_an_inline_boundary() {
+    let lhs = std::hint::black_box(i64::MAX - 1);
+    let rhs = std::hint::black_box(2i64);
+    let _ = std::hint::black_box(add_across_an_inline_boundary(lhs, rhs));
+}
+
+#[test]
+#[should_panic(expected = "overflow")]
+fn raw_i64_overflow_panics_inside_a_generic() {
+    let lhs = std::hint::black_box(i64::MAX - 1);
+    let rhs = std::hint::black_box(2i64);
+    let _ = std::hint::black_box(add_in_a_generic(lhs, rhs));
+}
+
+#[test]
+fn the_held_out_sites_do_not_panic_one_step_below_the_edge() {
+    // The negative half of each pair: distinguishes "overflow is detected at
+    // these sites" from "these sites panic on any addition".
+    let lhs = std::hint::black_box(i64::MAX - 1);
+    let rhs = std::hint::black_box(1i64);
+    assert_eq!(add_across_an_inline_boundary(lhs, rhs), i64::MAX);
+    assert_eq!(add_in_a_generic(lhs, rhs), i64::MAX);
+}

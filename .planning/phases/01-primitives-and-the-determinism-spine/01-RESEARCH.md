@@ -646,6 +646,12 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 ### Pattern 5 — Generational `FirmId` (CORE-06)
 
+> **Amended 2026-08-31.** The second field ships as `generation`, not `gen`: `gen` is a
+> reserved keyword in edition 2024 and does not parse as an identifier. The snippet below
+> is the original research text, kept as written; read every `gen` in it as `generation`.
+> The type shape, the derived `(slot, generation)` total order and the D-03 rule that only
+> the slot enters the RNG key are all unchanged. See REQUIREMENTS.md CORE-06 rationale.
+
 ```rust
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct FirmSlot(pub u16);

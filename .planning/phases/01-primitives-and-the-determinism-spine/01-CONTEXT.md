@@ -49,7 +49,10 @@ the rationale is written out for exactly that reason.
   explicitly assigned discriminants — **discriminants are append-only and never renumbered**,
   because renumbering silently re-keys history. — **Reversibility:** one-way — same blast
   radius as D-01.
-- **D-03: The `agent` field of the nonce carries `FirmId.slot`, never `gen`.** A respawned firm
+- **D-03: The `agent` field of the nonce carries `FirmId.slot`, never `gen`.**
+  *(Spelling amended 2026-08-31: the field ships as `generation`; `gen` is a reserved keyword
+  in edition 2024. The decision itself is unchanged — only the slot enters the key. See
+  REQUIREMENTS.md CORE-06 rationale.)* A respawned firm
   in the same slot must not inherit the previous occupant's keystream position, and `gen` must
   not widen the key. Households use their index directly. Interaction with CORE-06 noted by
   research; the planner must not let `FirmId`'s two fields both leak into the key.
