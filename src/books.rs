@@ -1906,6 +1906,85 @@ mod tests {
     }
 
     #[test]
+    fn ending_a_tick_leaves_a_seeded_non_zero_residual_of_either_kind_untouched() {
+        // **This test exists because the property above it cannot fail.**
+        // `tests/ledger_props.rs::ending_a_tick_leaves_the_residuals_and_the_
+        // balances_untouched` asserts the same claim over arbitrary operation
+        // sequences and was mutation-checked in plan 02-07: adding
+        // `self.cash_residual_cents = 0;` to `end_of_tick` left it green. The
+        // reason is structural rather than a defect in the property. On the
+        // honest path the books conserve, so both residuals are ALREADY zero at
+        // every tick boundary, and zeroing a zero changes nothing observable.
+        //
+        // Making it observable needs a residual that is not zero, which needs
+        // the fault-injection vocabulary — and that vocabulary is visible to
+        // this crate's own unit tests only, which is exactly why the version
+        // with teeth belongs here and not under `tests/`. Recorded as an
+        // unmet truth in `.planning/WINDOWS.md` and discharged by this test.
+        //
+        // Mutation-verified in plan 02-06, in both build profiles: with
+        // `self.cash_residual_cents = 0;` added to `end_of_tick` this test
+        // fails and the integration property still passes.
+        let mut books = Books::new(&shipped()).expect("the shipped endowment sums to the stock");
+
+        // An over-credited posting: the balances and the journal residual move
+        // together, leaving the running cash residual at one cent.
+        books.corrupt_recorded_cash(firm(0, 0), household(0), 100, 1);
+
+        // A posting whose two unit legs disagree, leaving the running goods
+        // residual at two units. A second, independent residual, because a
+        // boundary that resets one and not the other is a different defect.
+        books.corrupt_appended_posting(Posting {
+            seq: 0,
+            kind: PostingKind::Exchange,
+            debit: household(0),
+            credit: firm(0, 0),
+            debit_cents: 500,
+            credit_cents: 500,
+            good: ONLY_GOOD,
+            units_out: 3,
+            units_in: 1,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+
+        assert_eq!(books.cash_residual_cents(), 1, "the seeded cash residual");
+        assert_eq!(books.goods_residual_units(), 2, "the seeded goods residual");
+        assert_eq!(books.journal().len(), 2);
+        assert_eq!(books.transactions_this_tick(), 2);
+
+        books.end_of_tick();
+
+        // The claim with teeth: a residual the honest path cannot produce
+        // survives the boundary unchanged. A tick boundary that reset either
+        // one would silently disable conservation from the next tick onward,
+        // because the residual is measured against the run's opening stock and
+        // is meaningful only cumulatively.
+        assert_eq!(
+            books.cash_residual_cents(),
+            1,
+            "the tick boundary reset the cash residual"
+        );
+        assert_eq!(
+            books.goods_residual_units(),
+            2,
+            "the tick boundary reset the goods residual"
+        );
+
+        // What the boundary does reset, asserted in the same test so that a
+        // change which preserves the residuals by preserving everything is not
+        // mistaken for a pass.
+        assert!(books.journal().is_empty());
+        assert_eq!(books.transactions_this_tick(), 0);
+
+        // A second boundary does not drift them either: the residuals are not
+        // merely "reset once", they are never written here at all.
+        books.end_of_tick();
+        assert_eq!(books.cash_residual_cents(), 1);
+        assert_eq!(books.goods_residual_units(), 2);
+    }
+
+    #[test]
     fn a_posting_serialises_with_rendered_addresses_and_integer_amounts() {
         // Phase 3 writes this shape into its event stream; it is pinned here so
         // a change to it is a reviewed diff rather than a silent one.
