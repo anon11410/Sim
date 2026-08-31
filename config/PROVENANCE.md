@@ -56,7 +56,7 @@ against; what such a row needs is calibration, not verification, and CAL-01 / CA
 
 ## 2. The per-key table
 
-One row per leaf key in `config/baseline.toml`. 41 keys, 41 rows — the count is set by the schema
+One row per leaf key in `config/baseline.toml`. 42 keys, 42 rows — the count is set by the schema
 in `src/config.rs`, never by the graded table's row count.
 
 | Key | Value | Grade | Source | Cadence | Verification state |
@@ -102,8 +102,9 @@ in `src/config.rs`, never by the graded table's row count.
 | `bankruptcy.entrant_price_ratio_ppm` | 1260000 (1.26×) | B | BAM `replace-bankrupt`, via annotated replication | none | UNVERIFIED |
 | `bankruptcy.incumbent_trim_per_tail` | 1 | C | Derived arithmetic — 5% of 20 firms = 1, from BAM submodel 41 (itself grade B) | none | UNVERIFIED — derived from a grade-B source |
 | `ownership.firms_per_owner` | 1 | PROJECT | Project choice, no published precedent; graded table row "Single-owner firms" | none | N/A — project choice |
+| `invariants.liveness_enabled` | false | PROJECT | ROADMAP Phase 2 criterion 3 (cross-phase constraint recorded by the roadmapper) | none | N/A — project choice |
 
-**Counts.** 41 rows: 2 grade A, 23 grade B, 1 grade C, 15 grade PROJECT. Of the 23 grade-B rows,
+**Counts.** 42 rows: 2 grade A, 23 grade B, 1 grade C, 16 grade PROJECT. Of the 23 grade-B rows,
 **21 are attributed to the baseline-model paper (Lengnick 2013)** and 2 to BAM. `01-CONTEXT.md`
 D-19 states 18; that number counts *rows of the graded table*, whereas this table counts *config
 keys*, and one graded row can expand into two keys (`ψ_price` / `ψ_quant` is a single graded row

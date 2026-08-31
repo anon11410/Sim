@@ -98,7 +98,7 @@ pub enum ConfigError {
     },
 }
 
-/// The whole parameter tree. Six tables, every key required.
+/// The whole parameter tree. Seven tables, every key required.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Params {
@@ -108,6 +108,7 @@ pub struct Params {
     pub firm: Firm,
     pub bankruptcy: Bankruptcy,
     pub ownership: Ownership,
+    pub invariants: Invariants,
 }
 
 /// Build a [`DomainViolation`] for `key`.
@@ -409,6 +410,24 @@ pub struct Bankruptcy {
 #[serde(deny_unknown_fields)]
 pub struct Ownership {
     pub firms_per_owner: u32,
+}
+
+/// Which invariant checks are active for this run.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Invariants {
+    /// The only switch for the liveness check, which asserts that a tick
+    /// recorded at least one cash transaction (LEDG-08).
+    ///
+    /// Read exactly once, at check-set construction, and never on the per-tick
+    /// path: the check set a tick runs is decided before the run starts, so a
+    /// tick never pays for a branch on a value that cannot change under it.
+    ///
+    /// Ships `false`. ROADMAP Phase 3 criterion 1 runs 3650 pre-economics
+    /// ticks in which nothing trades, and every one of them would halt with the
+    /// check on; ROADMAP Phase 6 criterion 7 owns flipping the shipped value in
+    /// the commit that first makes wages move money.
+    pub liveness_enabled: bool,
 }
 
 /// Read `path` once as raw bytes, hash those bytes, and parse those same bytes.

@@ -167,3 +167,8 @@ incumbent_trim_per_tail = 1
 # Firms held by an owning household. 20 of 200 households hold one each.
 # GRADE: PROJECT | SOURCE: project choice, no published precedent; graded table row "Single-owner firms" | CADENCE: none
 firms_per_owner = 1
+
+[invariants]
+# Whether the liveness check is active. The check asserts a tick recorded at least one cash transaction, closing the "money conserves because nothing trades" degenerate pass. It ships off for Phase 3's pre-economics empty run of 3650 ticks in which nothing trades, and turns on from Phase 6, the phase in which wages make the first money move.
+# GRADE: PROJECT | SOURCE: ROADMAP Phase 2 criterion 3 (cross-phase constraint recorded by the roadmapper) | CADENCE: none
+liveness_enabled = false
