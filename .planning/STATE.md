@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 current_phase: 3
 current_phase_name: World, Tick Pipeline and Log Seam
 status: executing
-stopped_at: Completed 03-01-PLAN.md
-last_updated: "2026-08-31T14:21:05.577Z"
+stopped_at: Completed 03-02-PLAN.md
+last_updated: "2026-08-31T14:45:46.840Z"
 last_activity: 2026-08-31
-last_activity_desc: Executed plan 03-01 — criterion 3 amended, log seam dependencies landed
-state_head: 6e2a6644166cfd9c0ef3568f1ef8968b6ce70d1b
+last_activity_desc: "Executed plan 03-02 — the tracer: world, nine-phase pipeline, tick log, real CLI"
+state_head: 3ef67d25dc78bb2751b701a4025d4d86794afeab
 progress:
   total_phases: 11
   completed_phases: 2
   total_plans: 21
-  completed_plans: 16
+  completed_plans: 17
   percent: 18
 ---
 
@@ -28,9 +28,9 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 ## Current Position
 
 Phase: 3 — World, Tick Pipeline and Log Seam
-Plan: 1 of 6 complete (03-01)
-Status: Executing — wave 1 done, 03-02 (tracer) next
-Last activity: 2026-08-31 — Executed plan 03-01
+Plan: 2 of 6 complete (03-01, 03-02)
+Status: Executing — waves 1 and 2 done; 03-03 (events, provenance, run record) next
+Last activity: 2026-08-31 — Executed plan 03-02
 
 Progress: [██░░░░░░░░] 18%
 
@@ -68,6 +68,7 @@ Progress: [██░░░░░░░░] 18%
 | Phase 01 P08 | 26 min | 3 tasks | 3 files |
 | Phase 01 P07 | 18 min | 3 tasks | 8 files |
 | Phase 3 P1 | 5min | 2 tasks | 3 files |
+| Phase 03 P02 | 30min | 3 tasks | 10 files |
 
 ## Accumulated Context
 
@@ -110,6 +111,10 @@ Recent decisions affecting current work:
 - [Phase 3]: ROADMAP Phase 3 criterion 3 amended: the vacuous-reproducibility counter-check is a seed-sensitive `activation_digest` column in `ticks.csv`, not the per-tick draw count, which was measured constant at 218 across seeds 42 and 43
 - [Phase 3]: REQUIREMENTS.md TICK-10 deliberately left unamended — it describes the finished simulation, whereas the criterion describes the mechanism a phase gate reads
 - [Phase 3]: Log seam crates: csv 1.4.0 + serde_json 1.0.151 (normal), assert_cmd 2.2.2 + tempfile 3.27.0 (dev-only, to keep getrandom off the behaviour path); schemars and insta rejected on measurement and asserted absent from Cargo.lock
+- [Phase 3]: 03-02: no violation record is written from src/log.rs and the violating tick is never logged (03-RESEARCH.md Open Question 3 — declined). The eager ticks.csv header keeps a halted run openable; putting a halt message in the one module holding a filesystem path would force guard 7h to be narrowed there.
+- [Phase 3]: 03-02: the run-directory default is runs/latest, and /runs is gitignored. The committed golden run of plan 03-06 lives under tests/, not there.
+- [Phase 3]: 03-02: ticks.csv column set frozen — tick, total_money_cents, firm_cash_cents, stock_units, headcount, transactions, rng_draws, activation_digest, postings. Costly to change from 03-04 (schema) and 03-06 (golden run).
+- [Phase 3]: 03-02: only TICK-01 marked Complete. TICK-03/08/10 are also claimed by plans 03-04 and 03-05 and stay Pending until those land (WINDOWS.md entry 25 is the precedent for not marking early).
 
 ### Pending Todos
 
@@ -148,6 +153,6 @@ Items acknowledged and deferred at milestone close, most recent first:
 
 ## Session Continuity
 
-Last session: 2026-08-31T14:21:05.447Z
-Stopped at: Completed 03-01-PLAN.md
+Last session: 2026-08-31T14:45:08.425Z
+Stopped at: Completed 03-02-PLAN.md
 Resume file: None

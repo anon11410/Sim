@@ -41,7 +41,7 @@
 
 ### Tick Pipeline and Logging
 
-- [ ] **TICK-01**: The tick is a fixed `const PHASES` table running the brief's phases in order, each completing for all agents before the next begins
+- [x] **TICK-01**: The tick is a fixed `const PHASES` table running the brief's phases in order, each completing for all agents before the next begins
 - [ ] **TICK-02**: The log schema is generated and committed as `schema/schema.json`, which Python reads; schema drift is a test failure
 - [ ] **TICK-03**: A per-tick series is written to `ticks.csv` with all money as integer `*_cents` columns
 - [ ] **TICK-04**: A per-event stream is written to `events.jsonl` covering bankruptcy, hire, fire and dividend, sufficient to reconstruct any agent's history without re-running
@@ -213,7 +213,7 @@ Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no dup
 | LEDG-08 | Phase 2 | Complete |
 | LEDG-09 | Phase 2 | Complete |
 | LEDG-10 | Phase 2 | Complete |
-| TICK-01 | Phase 3 | Pending |
+| TICK-01 | Phase 3 | Complete |
 | TICK-02 | Phase 3 | Pending |
 | TICK-03 | Phase 3 | Pending |
 | TICK-04 | Phase 3 | Pending |

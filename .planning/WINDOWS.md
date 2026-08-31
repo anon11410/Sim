@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 21
+open_count: 22
 waived_count: 0
 fixed_count: 4
-total_count: 25
-last_updated: 2026-08-31T14:22:06.500Z
+total_count: 26
+last_updated: 2026-08-31T14:45:57.809Z
 ---
 
 # Broken Windows Ledger
@@ -40,6 +40,7 @@ last_updated: 2026-08-31T14:22:06.500Z
 | 23 | 02 | unmet-truth | src/invariants.rs | 581 | ROADMAP Phase 2 criterion 2 ('the negative test passes for EVERY check') was met for four of the five checks. check_goods (goods conservation, LEDG-05) had no negative test: every call site reaching it asserted Ok(()), the localisation test called first_breaking_goods_posting directly, and the message module rendered a hand-built GoodsConservation the check never produced. Verified by 02-VERIFICATION mutation M10 - replacing the whole body with 'if true { return Ok(()); }' left all 239 tests green. Plan 02-05 scoped exactly four violation classes (LEDG-04/06/07/10) and goods was never in scope, so the 'every check' self-audit never ran and nothing recorded the omission. | fixed |  | 2026-08-31T11:49:16.631Z | 2026-08-31T11:49:20.831Z |
 | 24 | 02 | deviation | src/books.rs |  | Closure of ledger entry 23. Books gains a fifth corruption method, corrupt_silent_stock(Account, GoodId, i64) - #[cfg(test)] pub(crate), no feature flag, no production surface - because no existing corruption could reach the goods check's balance-derived arm without also moving the journal arm. invariants::goods gains two negative tests, one per arm: an_exchange_whose_unit_legs_disagree_is_a_goods_leak_and_is_localised (journal residual 2, delta_units 0, posting Some) and units_conjured_outside_the_posting_path_break_the_identity_and_name_no_posting (delta_units -7, journal residual 0, posting None). Mutation-verified three ways: neutering the whole body fails both, neutering journal_residual_units fails only the first, neutering delta_units fails only the second. Two cross-phase obligations. (a) tests/lints.sh guard 7j pins the probe call count to the declaration count, so a sixth corruption method needs a matching line in tests/lint-probes/books_cfg_test_probe.rs.txt - it refused this commit until the line was added. (b) Phase 5 rewrites total_stock, produced, consumed and goods_residual_units_for to be per-good; these two tests are what will catch a rewrite that breaks the check, and their expected produced/stock values are derived from params (firms x initial_inventory_units), not read back from the books. | open |  | 2026-08-31T11:49:41.130Z |  |
 | 25 | 3 | deviation | .planning/REQUIREMENTS.md |  | requirements mark-complete flipped TICK-02/03/04/10 to Complete for a plan with no production code; reverted, all four remain Pending | open |  | 2026-08-31T14:22:06.500Z |  |
+| 26 | 3 | deviation | .planning/REQUIREMENTS.md |  | 03-02 marked only TICK-01 Complete of the four in its frontmatter. TICK-03 is also claimed by plan 03-04 and TICK-08/TICK-10 by plan 03-05, so marking all four would have made the traceability table claim work two later plans have yet to do (the failure WINDOWS entry 25 records). Close this when 03-04 and 03-05 land and their halves are marked. | open |  | 2026-08-31T14:45:57.809Z |  |
 
 ````json
 [
@@ -341,6 +342,18 @@ last_updated: 2026-08-31T14:22:06.500Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T14:22:06.500Z",
+    "resolved_at": null
+  },
+  {
+    "id": 26,
+    "kind": "deviation",
+    "phase": "3",
+    "file": ".planning/REQUIREMENTS.md",
+    "line": null,
+    "description": "03-02 marked only TICK-01 Complete of the four in its frontmatter. TICK-03 is also claimed by plan 03-04 and TICK-08/TICK-10 by plan 03-05, so marking all four would have made the traceability table claim work two later plans have yet to do (the failure WINDOWS entry 25 records). Close this when 03-04 and 03-05 land and their halves are marked.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T14:45:57.809Z",
     "resolved_at": null
   }
 ]
