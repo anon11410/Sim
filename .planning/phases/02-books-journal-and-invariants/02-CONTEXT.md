@@ -46,8 +46,15 @@ Constraints, so no grey area was escalated for a user decision.
   tick — run it in release, every tick, always.
 - **The journal is a per-tick buffer, not an append-forever log.** A decade
   produces ~10⁶ postings; a violation is always locatable inside the tick it
-  occurred. Accumulate, check, bisect to name the offending posting, clear.
-  Disk write is a config flag.
+  occurred. Accumulate, check, localise, clear. Disk write is a config flag.
+  **Correction (02-RESEARCH.md, post-context):** localisation is a **linear scan
+  for the first non-zero running residual**, NOT a bisection. Residuals cancel,
+  so binary search assumes a monotone onset that does not hold — a journal broken
+  at posting #50, healed at #120 and broken again at #200 makes bisect answer 200
+  where the correct answer is 50. Measured cost of the linear scan is 80 ns/tick
+  for 274 postings, less than the conservation recompute it accompanies. This
+  supersedes the word "bisect" wherever it appears in the project research SUMMARY
+  and in the earlier draft of this file.
 - **Liveness is config-gated off for Phase 3's pre-economics empty run** and on
   by default from Phase 6. Recorded as a cross-phase constraint by the
   roadmapper: LEDG-08 would otherwise fail TICK-08's 3,650 empty ticks.
@@ -107,7 +114,17 @@ Guided by ROADMAP success criteria and the conventions Phase 1 established.
 <specifics>
 ## Specific Ideas
 
-- The gate for this phase is the **negative test**: a deliberately seeded leak —
+- **LEDG-02 is provable by a positive test, not merely by assertion.** The ROADMAP
+  phrases the criterion as "a test observing the books mid-transaction is impossible
+  to write", which is unfalsifiable. 02-RESEARCH.md establishes the falsifiable form:
+  a non-atomic transfer that writes one leg then panics leaves the books at -400
+  against an opening 100, observable through `catch_unwind` + `AssertUnwindSafe`;
+  compute-then-commit leaves them at 100. Ship the passing test **and** the mutant
+  that fails it. Note also that an exclusive `&mut self` borrow alone does NOT
+  deliver LEDG-02 — a `&mut Books` method taking a callback hands out a
+  mid-transaction `&Books` and compiles clean. Four legs are required: exclusive
+  borrow, a no-callback signature rule, no interior mutability, and panic-atomicity.
+- The gate for this phase is also the **negative test**: a deliberately seeded leak —
   a dropped cent, an over-credited sale, a driven-negative balance, a non-zero-sum
   trade — must halt the run and print tick, agent and offending posting. An
   invariant never observed to fire has never been shown to work.
