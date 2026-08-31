@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 9
+open_count: 10
 waived_count: 0
 fixed_count: 1
-total_count: 10
-last_updated: 2026-08-31T09:55:20.916Z
+total_count: 11
+last_updated: 2026-08-31T10:11:22.368Z
 ---
 
 # Broken Windows Ledger
@@ -25,6 +25,7 @@ last_updated: 2026-08-31T09:55:20.916Z
 | 8 | 02 | deviation | src/books.rs |  | Plan 02-04 task 2 modified src/books.rs though its <files> lists only src/invariants.rs: check_non_negative cannot walk accounts without an enumerator (Books::accounts) and no accessor exposed the per-slot firm generations needed to build a firm Account. Also added PostError::EmptyExchange. | open |  | 2026-08-31T09:55:20.419Z |  |
 | 9 | 02 | deviation | tests/invariant_halt.rs |  | Modified outside plan 02-04's files_modified, discharging ledger entry 7: the active-check sequence assertions now read five checks with the gate on and four with it off. Behavioural claims untouched. Plans 02-05..02-07 that add a check must update the same two assertions (here and src/invariants.rs#the_gate_decides_the_exact_sequence_of_active_checks). | open |  | 2026-08-31T09:55:20.666Z |  |
 | 10 | 02 | deviation | src/invariants.rs |  | ZeroSumDetail ships 8 variants, not the 6 in plan 02-04's <artifacts_produced>: SplitParties (a one-party kind naming two accounts) and EmptyExchange (the action text's 'both legs non-zero' clause, which the six listed variants cannot express). Plan 02-05's message tests should expect eight. | open |  | 2026-08-31T09:55:20.916Z |  |
+| 11 | 02 | deviation | .planning/ROADMAP.md |  | roadmap.update-plan-progress rewrote the Phase 2 plan checklist as a side effect; reverted per the wave shared-artifact rule (STATE.md and ROADMAP.md are owned by the orchestrator while sibling plans 02-06/02-07 are outstanding). Plans 02-06 and 02-07 will hit the same side effect and must revert it too. | open |  | 2026-08-31T10:11:22.368Z |  |
 
 ````json
 [
@@ -146,6 +147,18 @@ last_updated: 2026-08-31T09:55:20.916Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T09:55:20.916Z",
+    "resolved_at": null
+  },
+  {
+    "id": 11,
+    "kind": "deviation",
+    "phase": "02",
+    "file": ".planning/ROADMAP.md",
+    "line": null,
+    "description": "roadmap.update-plan-progress rewrote the Phase 2 plan checklist as a side effect; reverted per the wave shared-artifact rule (STATE.md and ROADMAP.md are owned by the orchestrator while sibling plans 02-06/02-07 are outstanding). Plans 02-06 and 02-07 will hit the same side effect and must revert it too.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T10:11:22.368Z",
     "resolved_at": null
   }
 ]

@@ -32,10 +32,10 @@
 - [ ] **LEDG-03**: `Money::split` distributes any remainder deterministically, and callers subtract the amount actually transferred
 - [ ] **LEDG-04**: Money conservation is checked every tick in release builds against the initial money stock, exactly
 - [ ] **LEDG-05**: Goods conservation is checked every tick: produced minus consumed equals inventory
-- [ ] **LEDG-06**: Non-negativity is checked every tick across cash, inventory and headcount
-- [ ] **LEDG-07**: Zero-sum trade is checked: every sale moves units one way and equal cash the other
+- [x] **LEDG-06**: Non-negativity is checked every tick across cash, inventory and headcount
+- [x] **LEDG-07**: Zero-sum trade is checked: every sale moves units one way and equal cash the other
 - [x] **LEDG-08**: A liveness invariant asserts transactions-per-tick is greater than zero, closing the "money conserves because nothing trades" degenerate pass
-- [ ] **LEDG-09**: On violation the sim halts immediately and prints the tick, the agent and the offending transaction, localised by a linear scan of the per-tick journal buffer for the first non-conserving posting
+- [x] **LEDG-09**: On violation the sim halts immediately and prints the tick, the agent and the offending transaction, localised by a linear scan of the per-tick journal buffer for the first non-conserving posting
   - *Rationale (amended 2026-08-31; authority: 02-RESEARCH.md; evidence: broken #50 / healed #120 / broken #200 — bisect answers 200, linear scan answers 50).* The superseded search assumes the running residual has a monotone onset — that once the books go wrong they stay wrong, so the first bad posting can be found by halving. It does not: a dropped cent healed later by an equal over-credit returns the residual to zero, and the search then names a later, unrelated posting as the offender. The measured counterexample above is exactly that shape. The linear scan was measured at 80 ns per tick over 274 postings, less than the conservation recompute it accompanies, so nothing is traded away for the correctness. Plans 02-02, 02-03 and 02-04 each make the superseded spelling a hard grep failure in `src/invariants.rs`, which is why the requirement text is what moves. This is a correction of the mechanism and not a loosening of the gate: the requirement still demands the offending transaction be named, and naming it correctly is strictly stronger than naming it plausibly.
 - [ ] **LEDG-10**: Invariants are a real pipeline phase returning `Result`, never `debug_assert!`, and a negative test proves a deliberately seeded leak actually halts the run
 
@@ -208,10 +208,10 @@ Every v1 requirement maps to exactly one phase in ROADMAP.md. No orphans, no dup
 | LEDG-03 | Phase 2 | Pending |
 | LEDG-04 | Phase 2 | Pending |
 | LEDG-05 | Phase 2 | Pending |
-| LEDG-06 | Phase 2 | Pending |
-| LEDG-07 | Phase 2 | Pending |
+| LEDG-06 | Phase 2 | Complete |
+| LEDG-07 | Phase 2 | Complete |
 | LEDG-08 | Phase 2 | Complete |
-| LEDG-09 | Phase 2 | Pending |
+| LEDG-09 | Phase 2 | Complete |
 | LEDG-10 | Phase 2 | Pending |
 | TICK-01 | Phase 3 | Pending |
 | TICK-02 | Phase 3 | Pending |
