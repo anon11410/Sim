@@ -145,16 +145,22 @@ impl Money {
         // `remainder` carries the sign of the amount and `|remainder| < n`, so
         // the count always fits, and the extra cent moves the bumped part away
         // from zero in the direction the amount itself points.
+        //
+        // The bump is computed INSIDE the branch that uses it, never ahead of
+        // it. Hoisting it out looks like a harmless loop invariant and is not:
+        // when the amount divides evenly, `remainder` is zero, nobody is
+        // bumped, and `base` is the amount itself — so a hoisted
+        // `base.checked_add(1)` overflows on `i64::MAX.split(1)`, an input whose
+        // correct answer is the amount returned untouched. That defect aborted
+        // the one function the brief names as the conservation guard.
         let extra_recipients = remainder.unsigned_abs();
         let extra_cent: i64 = if remainder < 0 { -1 } else { 1 };
-        let bumped = base
-            .checked_add(extra_cent)
-            .expect("Money overflow on split remainder distribution");
 
         let mut parts = Vec::with_capacity(n as usize);
         for index in 0..u64::from(n) {
             parts.push(Money(if index < extra_recipients {
-                bumped
+                base.checked_add(extra_cent)
+                    .expect("Money overflow on split remainder distribution")
             } else {
                 base
             }));
@@ -411,6 +417,52 @@ mod split_tests {
         let p = parts(-1_000, 3);
         assert_eq!(p.iter().sum::<i64>(), -1_000);
         assert_eq!(p, vec![-334, -333, -333]);
+    }
+
+    // --- The domain edges (CR-01) ----------------------------------------
+    //
+    // The unit tests above and both proptest strategies in
+    // `tests/money_props.rs` used to stay inside `1..1_000_000`, so the
+    // representable extremes were untested and `split` panicked on
+    // `i64::MAX.split(1)`: the remainder bump was computed before the code knew
+    // whether anybody was bumped, so a dead `+1` overflowed on an amount that
+    // needed no arithmetic at all. These four cases are that class of input.
+
+    #[test]
+    fn the_largest_representable_amount_split_one_way_is_returned_untouched() {
+        assert_eq!(parts(i64::MAX, 1), vec![i64::MAX]);
+    }
+
+    #[test]
+    fn the_smallest_representable_amount_split_one_way_is_returned_untouched() {
+        assert_eq!(parts(i64::MIN, 1), vec![i64::MIN]);
+    }
+
+    #[test]
+    fn zero_split_one_way_is_zero() {
+        assert_eq!(parts(0, 1), vec![0]);
+    }
+
+    #[test]
+    fn the_representable_extremes_still_sum_back_exactly_across_many_parts() {
+        for n in [1u32, 2, 3, 7, 63] {
+            for amount in [i64::MAX, i64::MIN, 0] {
+                let p = parts(amount, n);
+                assert_eq!(p.len(), n as usize, "{amount} split {n} ways");
+                // Fold through the checked operator, never a raw accumulator:
+                // the property under test is that no cent is created or lost.
+                let total: Money = p.iter().copied().map(Money::from_cents).sum();
+                assert_eq!(total.cents(), amount, "{amount} split {n} ways: {p:?}");
+
+                let largest = *p.iter().max().expect("split never returns no parts");
+                let smallest = *p.iter().min().expect("split never returns no parts");
+                assert!(
+                    largest - smallest <= 1,
+                    "spread was {} for {amount} split {n} ways",
+                    largest - smallest
+                );
+            }
+        }
     }
 
     #[test]
