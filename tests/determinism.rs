@@ -30,13 +30,26 @@
 //! `e3b0c442…` on both sides, and passed while certifying nothing at all. Every
 //! read in this file goes through [`read_nonempty`] so that a comparison over
 //! an empty file cannot be written by accident.
+//!
+//! **The diffed set is enumerated from the run directory, never listed here.**
+//! A hand-written list of files to compare silently stops covering a file a
+//! later phase adds, and the test that used it stays green while the coverage
+//! shrinks. [`the_exclusion_is_enforced_not_documented`] reads the directory,
+//! subtracts [`EXCLUDED_FROM_DIFF`], and asserts the count it actually diffed —
+//! so a new file is compared automatically or excluded deliberately, and cannot
+//! be skipped by omission.
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
+use serde_json::Value;
 use sim::books::Books;
 use sim::config::Params;
 use sim::invariants::CheckSet;
-use sim::log::{EVENTS_FILE, PROVENANCE_FILE, RunWriter, Sink, TICKS_FILE};
+use sim::log::{
+    Decision, EVENTS_FILE, PROVENANCE_FILE, RUN_META_FILE, Rule, RunWriter, Sink, TICKS_FILE,
+    provenance_header, schema_json, ticks_header,
+};
 use sim::phases::Ctx;
 use sim::rng::Rngs;
 use sim::world::World;
@@ -45,11 +58,42 @@ use sim::world::World;
 /// working directory a harness happens to choose.
 const CONFIG: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/config/baseline.toml");
 
+/// This repository's root, as the compiler knew it.
+///
+/// Known to the test and therefore searchable: it is the path the configuration
+/// was read from, and it may not appear in anything a run writes.
+const REPO_ROOT: &str = env!("CARGO_MANIFEST_DIR");
+
 /// The seed the same-seed claims are made at.
 const SEED: u64 = 42;
 
 /// A second seed, for the claim that the seed reaches a written byte.
 const OTHER_SEED: u64 = 43;
+
+/// A decade of daily ticks.
+///
+/// **A literal, deliberately, and the only one in this file.** TICK-08 is a
+/// claim about a decade. A test that read the run length out of the same
+/// configuration it is exercising would certify whatever that file happened to
+/// say — including a shortened run someone left behind while debugging — and
+/// would report a green decade for a run of eleven ticks. The literal is
+/// compared *against* the configuration, so a deliberate change to the run
+/// length fails here and gets reconsidered rather than absorbed.
+const DECADE_TICKS: u32 = 3650;
+
+/// The files a run directory is not diffed on.
+///
+/// **One entry, one place.** The run record is the single quarantined file: it
+/// is the only one permitted a wall clock, and it carries the compiler string,
+/// which differs between two machines that must still agree on the economy. A
+/// future phase that adds a file to the run directory declares its exclusion
+/// here or nowhere — clause 3 of [`the_exclusion_is_enforced_not_documented`]
+/// diffs everything this list does not name, so an undeclared file is compared
+/// rather than skipped.
+///
+/// Spelled from the library's own constant rather than as a literal, so a
+/// renamed file cannot leave this list pointing at a name nothing writes.
+const EXCLUDED_FROM_DIFF: [&str; 1] = [RUN_META_FILE];
 
 /// Read a file, asserting it has content BEFORE any caller can compare it.
 ///
@@ -293,4 +337,612 @@ fn different_seed_differs() {
         "the activation digest did not change with the seed at tick 0 — this is \
          the column the whole different-seed claim rests on",
     );
+}
+
+// ---------------------------------------------------------------------------
+// TICK-05, TICK-06: the exclusion, and what a diffed file may contain.
+// ---------------------------------------------------------------------------
+
+/// The parameters the shipped configuration asks for.
+fn configured() -> Params {
+    sim::config::load(Path::new(CONFIG))
+        .expect("the shipped configuration loads")
+        .0
+}
+
+/// The names of everything in a run directory, in a set with a defined order.
+///
+/// A `BTreeSet`, never a hashed one — the project bans hashed iteration for the
+/// reason this file exists, and a set whose order varies would make a failure
+/// message report a different file each run.
+fn entries(directory: &Path) -> BTreeSet<String> {
+    std::fs::read_dir(directory)
+        .unwrap_or_else(|error| panic!("the run directory is readable: {error}"))
+        .map(|entry| {
+            entry
+                .expect("a directory entry reads")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect()
+}
+
+/// Invoke the built binary and return the PROCESS IDENTIFIER it ran under.
+///
+/// Spawned directly rather than through the process-testing crate's assertion
+/// builder for one reason: that builder does not surface the child's
+/// identifier, and clause 4 of the exclusion test needs it. The binary is the
+/// same one — `CARGO_BIN_EXE_sim` is set by cargo to the artefact built for
+/// this test run, so this is not a path assembled by hand into the target
+/// directory.
+fn spawn_binary(seed: u64, out: &Path) -> u32 {
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_sim"))
+        .args(["--config", CONFIG])
+        .args(["--seed", &seed.to_string()])
+        .arg("--out")
+        .arg(out)
+        .spawn()
+        .expect("the sim binary spawns");
+    let identifier = child.id();
+    let status = child.wait().expect("the sim binary is waited on");
+    assert!(status.success(), "the binary exited {:?}", status.code());
+    identifier
+}
+
+/// Every distinct run of ASCII letters in `text`.
+fn alphabetic_words(text: &str) -> BTreeSet<String> {
+    let mut words = BTreeSet::new();
+    let mut current = String::new();
+    for character in text.chars() {
+        if character.is_ascii_alphabetic() {
+            current.push(character);
+        } else if !current.is_empty() {
+            words.insert(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        words.insert(current);
+    }
+    words
+}
+
+/// Every word the wire format itself declares.
+///
+/// **Derived from the GENERATOR, not from a run's output.** A vocabulary read
+/// out of the artefact under test would contain whatever leaked into it and
+/// would permit exactly the thing it is meant to catch. `schema_json` is the
+/// committed contract's source, and `tests/log_schema.rs` holds it to the
+/// committed file, so this vocabulary cannot drift from the format either.
+///
+/// **The two closed value vocabularies are added, and are not optional.** The
+/// schema declares the provenance table's `decision` and `rule` COLUMNS; the
+/// names those columns hold are declared by the enumerations instead. This
+/// phase writes no provenance rows, so omitting them costs nothing today and
+/// would make this clause fire on the first correct row Phase 6 writes — a
+/// guard that goes red on correct output is one the next reader loosens, and
+/// loosening it is how the clause stops catching a host name.
+fn wire_vocabulary() -> BTreeSet<String> {
+    let mut words = alphabetic_words(&schema_json());
+    for decision in Decision::ALL {
+        words.append(&mut alphabetic_words(&rendered(&decision)));
+    }
+    for rule in Rule::ALL {
+        words.append(&mut alphabetic_words(&rendered(&rule)));
+    }
+    words
+}
+
+/// A value as the writers spell it.
+fn rendered<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string(value).expect("a closed vocabulary serialises")
+}
+
+/// A calendar date, as a byte shape.
+const DATE_SHAPE: &str = "dddd-dd-dd";
+
+/// A clock reading, as a byte shape.
+const CLOCK_SHAPE: &str = "dd:dd:dd";
+
+/// The first run of bytes in `text` matching `shape`, where `d` stands for any
+/// ASCII digit and every other character stands for itself.
+///
+/// Shapes rather than substrings, because a wall clock has no fixed value to
+/// search for. Both shapes are impossible in a comma-separated series of
+/// integers — a minus sign only ever follows a comma or a line start, and a
+/// colon in the event stream only ever follows a letter — so a match is a
+/// finding rather than a coincidence.
+fn shape_match(text: &str, shape: &str) -> Option<String> {
+    let characters: Vec<char> = text.chars().collect();
+    let pattern: Vec<char> = shape.chars().collect();
+    if characters.len() < pattern.len() {
+        return None;
+    }
+    for start in 0..=characters.len() - pattern.len() {
+        let window = &characters[start..start + pattern.len()];
+        let matched = window.iter().zip(pattern.iter()).all(|(seen, wanted)| {
+            if *wanted == 'd' {
+                seen.is_ascii_digit()
+            } else {
+                seen == wanted
+            }
+        });
+        if matched {
+            return Some(window.iter().collect());
+        }
+    }
+    None
+}
+
+/// A run's own record, parsed.
+fn run_meta(out: &Path) -> Value {
+    serde_json::from_slice(&read_nonempty(&out.join(RUN_META_FILE)))
+        .expect("the run record is JSON")
+}
+
+/// Two runs at one seed, one exclusion, and four claims that are four different
+/// claims.
+///
+/// The clauses are numbered in the test body. None is redundant, and the test
+/// was watched failing on clause 3 against the naive build, where both the tick
+/// file and the event stream were zero bytes.
+///
+/// **On the process identifier and the wall clock.** The two runs below are two
+/// separate processes, started one after the other, writing into two
+/// differently named directories. Every diffed file is asserted byte-equal
+/// across them — so a process identifier, a per-run directory name or a clock
+/// reading cannot have reached a diffed byte, because all three differed
+/// between the two runs. The identifiers are asserted to differ so that this
+/// reasoning is not vacuous.
+///
+/// **A substring search for the identifier's digits is deliberately refused.**
+/// It is the obvious spelling and it is wrong: measured on a real 3,650-tick
+/// `ticks.csv`, **42.0%** of all five-digit numbers occur somewhere in it by
+/// coincidence (4.9% of six-digit, 0.47% of seven-digit), and this host's
+/// `pid_max` is 32768, so every identifier here is at most five digits. Such a
+/// search would be red against a correct simulation roughly two runs in five,
+/// and what it would be measuring is digit coincidence, not information
+/// disclosure. The clauses below cover the same ground soundly: byte-equality
+/// across two processes for anything that varies per run, a closed vocabulary
+/// for anything alphabetic, path separators and known paths for anything
+/// path-shaped, and two byte shapes for anything timestamp-shaped.
+#[test]
+fn the_exclusion_is_enforced_not_documented() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let first = root.path().join("first");
+    let second = root.path().join("second");
+    let first_identifier = spawn_binary(SEED, &first);
+    let second_identifier = spawn_binary(SEED, &second);
+
+    let vocabulary = wire_vocabulary();
+
+    // The scanners, checked against a fabricated leak BEFORE they are trusted
+    // on the real files. A scanner that matches nothing passes over everything,
+    // which is the shape of failure this whole file is about.
+    assert!(shape_match("started 2026-08-31 here", DATE_SHAPE).is_some());
+    assert!(shape_match("0,2000000,1000000,3300", DATE_SHAPE).is_none());
+    assert!(shape_match("at 14:07:33 today", CLOCK_SHAPE).is_some());
+    assert!(shape_match("household:12,firm:3:0", CLOCK_SHAPE).is_none());
+    assert!(alphabetic_words("/tmp/.tmpQ1z/first").contains("tmp"));
+    // The closed value vocabularies really did reach the set: without them the
+    // clause below fires on the first correct provenance row a later phase
+    // writes, and the repair someone reaches for is to delete the clause.
+    assert!(
+        vocabulary.contains("price") && vocabulary.contains("held"),
+        "the decision and rule vocabularies are missing from the wire vocabulary",
+    );
+    assert!(
+        !vocabulary.contains("tmp") && !vocabulary.contains("hostname"),
+        "the wire vocabulary already admits a word a leak would carry, so \
+         clause 4a would pass over that leak",
+    );
+
+    // 1. The two runs produced the same set of files.
+    let files = entries(&first);
+    assert_eq!(
+        files,
+        entries(&second),
+        "two runs at one seed produced different sets of files",
+    );
+
+    // 2. The excluded file must EXIST. Excluding a file that was never written
+    //    is a vacuous exclusion: it enforces nothing, and it is indistinguishable
+    //    from an exclusion that is doing its job.
+    for excluded in EXCLUDED_FROM_DIFF {
+        assert!(
+            files.contains(excluded),
+            "{excluded} is excluded from the diff but was never written — a \
+             vacuous exclusion enforces nothing",
+        );
+    }
+
+    // 3. Every OTHER file, ENUMERATED FROM THE DIRECTORY.
+    let mut diffed = 0usize;
+    let mut words_seen = 0usize;
+    for name in &files {
+        if EXCLUDED_FROM_DIFF.contains(&name.as_str()) {
+            continue;
+        }
+        let left = read_nonempty(&first.join(name));
+        let right = read_nonempty(&second.join(name));
+        assert_eq!(
+            digest_of(&left),
+            digest_of(&right),
+            "{name} differs between two runs at seed {SEED}",
+        );
+
+        // 4. Nothing in a diffed file may come from the environment.
+        let text = String::from_utf8(left).expect("a diffed file is text");
+
+        // 4a. Every word is one the wire format declares. A host name, a user
+        //     name, a path component or a month name is not.
+        let words = alphabetic_words(&text);
+        assert!(
+            !words.is_empty(),
+            "{name} carries no words at all, so the vocabulary clause below \
+             would pass over it without looking at anything",
+        );
+        for word in &words {
+            assert!(
+                vocabulary.contains(word),
+                "{name} carries the word {word:?}, which the wire format does \
+                 not declare — a run's files carry the model's own vocabulary \
+                 and nothing from the machine it ran on (TICK-06)",
+            );
+        }
+        words_seen += words.len();
+
+        // 4b. Nothing path-shaped, whether or not it is spelled in letters.
+        assert!(
+            !text.contains('/') && !text.contains('\\'),
+            "{name} carries a path separator",
+        );
+        for known in [
+            root.path().to_str().expect("the temporary path is text"),
+            REPO_ROOT,
+        ] {
+            assert!(!text.contains(known), "{name} carries the path {known}");
+        }
+
+        // 4c. Nothing timestamp-shaped. The tick number is the only clock.
+        for shape in [DATE_SHAPE, CLOCK_SHAPE] {
+            assert!(
+                shape_match(&text, shape).is_none(),
+                "{name} carries {:?}, which is shaped like a wall-clock reading",
+                shape_match(&text, shape).unwrap_or_default(),
+            );
+        }
+
+        diffed += 1;
+    }
+
+    assert!(
+        words_seen > 0,
+        "the vocabulary clause examined no words across any file",
+    );
+    assert_eq!(
+        diffed,
+        files.len() - EXCLUDED_FROM_DIFF.len(),
+        "the number of files diffed is not the directory's contents minus the \
+         exclusion list — a file was skipped without being declared",
+    );
+    assert!(
+        diffed >= 3,
+        "only {diffed} files were diffed; a run that silently stopped writing \
+         one would otherwise leave this test green",
+    );
+
+    // The premise clause 4's reasoning about process identity rests on.
+    assert_ne!(
+        first_identifier, second_identifier,
+        "the two runs shared a process identifier, so the byte equality above \
+         says nothing about whether one reached a diffed file",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// TICK-03: the run directory is well formed.
+// ---------------------------------------------------------------------------
+
+/// One header line, one row per configured tick, no carriage return, no empty
+/// field, and every field an integer.
+///
+/// The shape claims are made against the files a real run left behind rather
+/// than against the row types, because the row type is not what the analysis
+/// side reads.
+#[test]
+fn the_run_directory_is_well_formed() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let out = root.path().join("run");
+    run_binary(SEED, &out);
+    let params = configured();
+
+    let files = entries(&out);
+    for name in [TICKS_FILE, EVENTS_FILE, PROVENANCE_FILE, RUN_META_FILE] {
+        assert!(files.contains(name), "{name} is missing from the run");
+    }
+
+    // The tick series.
+    let text =
+        String::from_utf8(read_nonempty(&out.join(TICKS_FILE))).expect("the tick file is text");
+    assert!(
+        !text.contains('\r'),
+        "a carriage return reached the tick file",
+    );
+    assert!(text.ends_with('\n'), "the last row is terminated");
+
+    let mut lines = text.lines();
+    let header: Vec<String> = lines
+        .next()
+        .expect("the tick file has a header")
+        .split(',')
+        .map(str::to_owned)
+        .collect();
+    // Against the library's own header, so a column that appeared without being
+    // declared fails here rather than becoming part of the contract by writing
+    // itself into the file. This is also what closes the one gap the timestamp
+    // shapes cannot see: a clock recorded as a bare integer would need a column,
+    // and a column that is not declared cannot exist.
+    assert_eq!(
+        header,
+        ticks_header(),
+        "the tick file's header is not the one the library declares",
+    );
+
+    let mut rows = 0u32;
+    for (index, line) in lines.enumerate() {
+        let fields: Vec<&str> = line.split(',').collect();
+        assert_eq!(
+            fields.len(),
+            header.len(),
+            "row {index} is not as wide as the header",
+        );
+        for (column, field) in header.iter().zip(fields.iter()) {
+            assert!(!field.is_empty(), "row {index} has an empty {column} field");
+            assert!(
+                field.parse::<i64>().is_ok(),
+                "row {index}'s {column} field {field:?} is not an integer",
+            );
+        }
+        rows += 1;
+    }
+    assert_eq!(
+        rows, params.sim.ticks,
+        "one header line plus one row per configured tick",
+    );
+
+    // The decision-provenance table: a run that decided nothing still leaves a
+    // full header line, because the measured default is a zero-byte file the
+    // analysis side refuses to open.
+    let provenance = String::from_utf8(read_nonempty(&out.join(PROVENANCE_FILE)))
+        .expect("the provenance table is text");
+    assert!(
+        !provenance.contains('\r'),
+        "a carriage return reached the provenance table",
+    );
+    let provenance_lines: Vec<&str> = provenance.lines().collect();
+    assert_eq!(
+        provenance_lines.len(),
+        1,
+        "this phase decides nothing, so the table is one header line",
+    );
+    assert_eq!(
+        provenance_lines[0]
+            .split(',')
+            .map(str::to_owned)
+            .collect::<Vec<String>>(),
+        provenance_header(),
+        "the provenance header is not the one the library declares",
+    );
+
+    // The event stream: one record per line, each a tagged object.
+    let events =
+        String::from_utf8(read_nonempty(&out.join(EVENTS_FILE))).expect("the event stream is text");
+    assert!(
+        !events.contains('\r'),
+        "a carriage return reached the event stream",
+    );
+    assert!(events.ends_with('\n'), "the last record is terminated");
+    let mut records = 0usize;
+    for (index, line) in events.lines().enumerate() {
+        let value: Value = serde_json::from_str(line)
+            .unwrap_or_else(|error| panic!("record {index} is not JSON: {error}"));
+        assert!(
+            value.get("event").and_then(Value::as_str).is_some(),
+            "record {index} carries no event tag",
+        );
+        records += 1;
+    }
+    assert!(records > 0, "the event stream carries no records");
+}
+
+// ---------------------------------------------------------------------------
+// TICK-08: a decade of empty ticks actually runs.
+// ---------------------------------------------------------------------------
+
+/// The configured decade, through the built binary, leaving a complete run
+/// directory.
+///
+/// **The clean exit is the invariant claim.** A violation exits one and prints
+/// to standard error; a run that completes is a run in which every active check
+/// passed on every one of its ticks. There is nothing further to assert about
+/// the invariants here that the exit code does not already carry.
+#[test]
+fn the_empty_decade_runs() {
+    let params = configured();
+    assert_eq!(
+        params.sim.ticks, DECADE_TICKS,
+        "the shipped configuration no longer runs a decade of daily ticks, so \
+         this test would certify a shorter run under TICK-08's name",
+    );
+
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let out = root.path().join("run");
+    run_binary(SEED, &out);
+
+    let declared: BTreeSet<String> = [TICKS_FILE, EVENTS_FILE, PROVENANCE_FILE, RUN_META_FILE]
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        entries(&out),
+        declared,
+        "the run directory is not the set of files the library and the binary \
+         declare — a file appeared or went missing",
+    );
+
+    let text =
+        String::from_utf8(read_nonempty(&out.join(TICKS_FILE))).expect("the tick file is text");
+    assert_eq!(
+        text.lines().count(),
+        usize::try_from(DECADE_TICKS).expect("a decade of ticks fits an index") + 1,
+        "the decade did not leave one header line plus one row per day",
+    );
+
+    let meta = run_meta(&out);
+    assert_eq!(
+        meta.get("ticks_completed").and_then(Value::as_u64),
+        Some(u64::from(DECADE_TICKS)),
+        "the run record does not report a completed decade",
+    );
+    assert_eq!(
+        meta.get("exit").and_then(Value::as_str),
+        Some("ok"),
+        "the run record does not report a clean finish",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// TICK-04: the replay origin agrees with the series it explains.
+// ---------------------------------------------------------------------------
+
+/// The endowment records sum, in cents, to the tick series' money column.
+///
+/// **Two independently produced numbers, neither of them a literal.** One comes
+/// out of the event stream, the other out of the tick series; a literal would
+/// only assert that someone once wrote the same number twice. This is the
+/// origin row Phase 4's conservation replay is anchored to, checked here rather
+/// than assumed there.
+#[test]
+fn endowment_events_sum_to_the_money_stock() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let out = root.path().join("run");
+    run_binary(SEED, &out);
+
+    let events =
+        String::from_utf8(read_nonempty(&out.join(EVENTS_FILE))).expect("the event stream is text");
+    let mut records = 0usize;
+    let mut cents: i64 = 0;
+    for (index, line) in events.lines().enumerate() {
+        let value: Value = serde_json::from_str(line)
+            .unwrap_or_else(|error| panic!("record {index} is not JSON: {error}"));
+        if value.get("event").and_then(Value::as_str) != Some("endowment") {
+            continue;
+        }
+        let cash = value
+            .get("cash_cents")
+            .and_then(Value::as_i64)
+            .unwrap_or_else(|| panic!("endowment record {index} carries no cash field"));
+        cents = cents
+            .checked_add(cash)
+            .expect("the endowment sum does not overflow");
+        records += 1;
+    }
+    assert!(
+        records > 0,
+        "no endowment record was found — the sum would be zero, and a zero \
+         summed from nothing is the vacuous half of this comparison",
+    );
+
+    let money: i64 = first_row_column(&out, "total_money_cents")
+        .parse()
+        .expect("the money column is an integer");
+    assert!(
+        money > 0,
+        "the money stock is zero, so this comparison is 0 == 0"
+    );
+    assert_eq!(
+        cents, money,
+        "the {records} endowment records sum to {cents} cents, while the tick \
+         series opens at {money} — Phase 4's replay origin does not agree with \
+         the series it is meant to explain",
+    );
+}
+
+// ---------------------------------------------------------------------------
+// TICK-05: the run record, and nothing the exclusion is not a licence for.
+// ---------------------------------------------------------------------------
+
+/// The word in `key` that a run record may not carry, if there is one.
+fn forbidden_word(key: &str) -> Option<&'static str> {
+    const FORBIDDEN: [&str; 8] = [
+        "duration", "elapsed", "host", "pid", "process", "path", "dir", "user",
+    ];
+    let lowered = key.to_lowercase();
+    FORBIDDEN.into_iter().find(|word| lowered.contains(word))
+}
+
+/// The seed, the configuration digest and the compiler — present, non-empty,
+/// and accompanied by nothing else.
+///
+/// **The exclusion from the diff is a permission for a wall clock, not a
+/// general environment allowance** for a file that ships beside the logs. The
+/// compiler string legitimately carries a release date; that is the one dated
+/// value in a run directory and it is why this file is the excluded one.
+#[test]
+fn run_meta_carries_the_three_fields() {
+    let root = tempfile::tempdir().expect("a temporary directory");
+    let out = root.path().join("run");
+    run_binary(SEED, &out);
+
+    // The predicate, checked against a fabricated field before it is trusted.
+    assert_eq!(forbidden_word("duration_ms"), Some("duration"));
+    assert_eq!(forbidden_word("hostname"), Some("host"));
+    assert_eq!(forbidden_word("seed"), None);
+
+    let meta = run_meta(&out);
+    let object = meta.as_object().expect("the run record is a JSON object");
+
+    // The value that runs must be the value recorded: this run was given the
+    // seed by an override, and the record must show the override.
+    assert_eq!(
+        object.get("seed").and_then(Value::as_u64),
+        Some(SEED),
+        "the recorded seed is not the seed the run was given",
+    );
+
+    // Independently produced on both sides: the record's digest against a
+    // digest this test takes of the same file.
+    let recorded = object
+        .get("config_sha256")
+        .and_then(Value::as_str)
+        .expect("the run record carries a configuration digest");
+    assert!(!recorded.is_empty(), "the configuration digest is empty");
+    assert_eq!(
+        recorded,
+        digest_of(&read_nonempty(Path::new(CONFIG))),
+        "the recorded digest is not the digest of the configuration that ran",
+    );
+
+    let compiler = object
+        .get("rustc")
+        .and_then(Value::as_str)
+        .expect("the run record carries a compiler string");
+    assert!(!compiler.is_empty(), "the compiler string is empty");
+
+    for key in object.keys() {
+        assert!(
+            forbidden_word(key).is_none(),
+            "the run record carries a {key} field — the diff exclusion is a \
+             permission for a wall clock, not for the environment",
+        );
+    }
+    for (key, value) in object {
+        if let Some(text) = value.as_str() {
+            assert!(
+                !text.contains('/') && !text.contains('\\'),
+                "the {key} field carries a path",
+            );
+        }
+    }
 }
