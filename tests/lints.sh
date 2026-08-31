@@ -92,6 +92,45 @@ assert_absent() {
     fi
 }
 
+# Proof that a guard's pattern fires: it must match exactly the number of hazard
+# lines its fixture holds, so every alternative in an alternation is exercised
+# rather than only the first.
+assert_fires() {
+    local what="$1" pattern="$2" expected="$3" fixture="$4"
+    local hits status
+    set +e
+    # -e, because a pattern may legitimately begin with a dash (guard 7g's
+    # return-type pattern starts with "->") and grep would read it as a flag.
+    hits=$(printf '%s\n' "$fixture" | grep -cE -e "$pattern")
+    status=$?
+    set -e
+    if [ "$status" -gt 1 ]; then
+        fail "guard $what: could not search its own hazard fixture (grep exit $status)"
+    fi
+    if [ "$hits" -ne "$expected" ]; then
+        fail "guard $what: its pattern matched $hits of the $expected hazard lines in its own fixture — the pattern has a typo, so its silence on the real tree would prove nothing"
+    fi
+}
+
+# The other half of the same discipline: a pattern must leave the PERMITTED
+# spelling alone, or the guard fires on legitimate source and gets deleted.
+assert_ignores() {
+    local what="$1" pattern="$2" fixture="$3"
+    local hits status
+    set +e
+    # -e, because a pattern may legitimately begin with a dash (guard 7g's
+    # return-type pattern starts with "->") and grep would read it as a flag.
+    hits=$(printf '%s\n' "$fixture" | grep -cE -e "$pattern")
+    status=$?
+    set -e
+    if [ "$status" -gt 1 ]; then
+        fail "guard $what: could not search its permitted-spelling fixture (grep exit $status)"
+    fi
+    if [ "$hits" -ne 0 ]; then
+        fail "guard $what: its pattern matched $hits line(s) of its PERMITTED fixture — it would fire on legitimate source"
+    fi
+}
+
 for f in "$PROBE_SRC" "$HAZARD_SRC" "$BORROW_PROBE_SRC" "$CFG_PROBE_SRC" \
          "$BOOKS_SRC" "$INVARIANTS_SRC" clippy.toml; do
     [ -f "$f" ] || fail "required input $f is missing"
@@ -232,8 +271,29 @@ mapfile -t RUST_SOURCES < <(git ls-files -- '*.rs')
 if [ "${#RUST_SOURCES[@]}" -eq 0 ]; then
     fail "found no tracked Rust source files to search — expected at least src/lib.rs"
 fi
+#
+#     THE PATTERN MUST NOT ANCHOR ON THE FIRST ARGUMENT. It used to:
+#     '#!?\[(allow|expect)\((warnings|...)' requires the banned lint name to be
+#     the first thing inside the parentheses, so it matched
+#     `#![allow(clippy::disallowed_types)]` and missed BOTH of the spellings a
+#     developer is most likely to reach for —
+#     `#[allow(dead_code, clippy::disallowed_methods)]`, added to silence one
+#     unrelated warning, and `#[cfg_attr(test, allow(clippy::disallowed_methods))]`.
+#     Each disables all 68 float and clock bans in its module while
+#     `cargo clippy -- -D warnings` passes and this check reports nothing.
+#     `[^)]*` before the alternation admits any earlier arguments; the optional
+#     `cfg_attr\([^)]*,` group admits the conditional form.
+EXEMPTION_PATTERN='#!?\[(cfg_attr\([^)]*,[[:space:]]*)?(allow|expect)\([^)]*(warnings|clippy::(all|disallowed_types|disallowed_methods))'
+assert_fires 4b "$EXEMPTION_PATTERN" 4 '#![allow(clippy::disallowed_types)]
+#[allow(dead_code, clippy::disallowed_methods)]
+#[cfg_attr(test, allow(clippy::disallowed_methods))]
+#[expect(warnings)]'
+assert_ignores 4b "$EXEMPTION_PATTERN" '#[allow(dead_code)]
+#[expect(unused_variables)]
+#[derive(Debug, Clone)]
+    let warnings = collect();'
 assert_absent "a file carries a lint exemption for a determinism ban" \
-    -En '#!?\[(allow|expect)\((warnings|clippy::(all|disallowed_types|disallowed_methods))' \
+    -En "$EXEMPTION_PATTERN" \
     -- "${RUST_SOURCES[@]}"
 
 # 4c. No point-lookup wrapper module. D-06 declines to build the hatch in this
@@ -331,45 +391,13 @@ echo "  check 6: the fault-injection vocabulary is refused from tests/ with E059
 # Every guard also asserts its search set is non-empty, following check 4b's
 # treatment of the tracked-file list: a guard over an empty set passes trivially
 # and is then believed to be protecting something (02-RESEARCH.md Pitfall 4).
-
-# Proof that a guard's pattern fires: it must match exactly the number of hazard
-# lines its fixture holds, so every alternative in an alternation is exercised
-# rather than only the first.
-assert_fires() {
-    local what="$1" pattern="$2" expected="$3" fixture="$4"
-    local hits status
-    set +e
-    # -e, because a pattern may legitimately begin with a dash (guard 7g's
-    # return-type pattern starts with "->") and grep would read it as a flag.
-    hits=$(printf '%s\n' "$fixture" | grep -cE -e "$pattern")
-    status=$?
-    set -e
-    if [ "$status" -gt 1 ]; then
-        fail "guard $what: could not search its own hazard fixture (grep exit $status)"
-    fi
-    if [ "$hits" -ne "$expected" ]; then
-        fail "guard $what: its pattern matched $hits of the $expected hazard lines in its own fixture — the pattern has a typo, so its silence on the real tree would prove nothing"
-    fi
-}
-
-# The other half of the same discipline: a pattern must leave the PERMITTED
-# spelling alone, or the guard fires on legitimate source and gets deleted.
-assert_ignores() {
-    local what="$1" pattern="$2" fixture="$3"
-    local hits status
-    set +e
-    # -e, because a pattern may legitimately begin with a dash (guard 7g's
-    # return-type pattern starts with "->") and grep would read it as a flag.
-    hits=$(printf '%s\n' "$fixture" | grep -cE -e "$pattern")
-    status=$?
-    set -e
-    if [ "$status" -gt 1 ]; then
-        fail "guard $what: could not search its permitted-spelling fixture (grep exit $status)"
-    fi
-    if [ "$hits" -ne 0 ]; then
-        fail "guard $what: its pattern matched $hits line(s) of its PERMITTED fixture — it would fire on legitimate source"
-    fi
-}
+#
+# `assert_fires` and `assert_ignores` are defined near the top of this file
+# rather than here, because check 4b is under the same discipline and runs
+# first. They were originally defined at this point, which is why 4b — the guard
+# that shipped with a pattern anchored on the FIRST argument of an `allow(...)`,
+# blind to `#[allow(dead_code, clippy::disallowed_methods)]` — had no proof that
+# it fired at all.
 
 # Absence over content held in a variable, so a guard can search a file with its
 # line comments stripped or its test modules removed and still report real line
