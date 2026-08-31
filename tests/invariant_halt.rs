@@ -130,7 +130,15 @@ fn the_gate_removes_exactly_one_check_and_never_disables_the_phase() {
 
     assert_eq!(
         on.active_ids(),
-        vec![CheckId::MoneyConservation, CheckId::Liveness]
+        vec![
+            CheckId::MoneyConservation,
+            CheckId::GoodsConservation,
+            CheckId::Liveness
+        ]
     );
-    assert_eq!(off.active_ids(), vec![CheckId::MoneyConservation]);
+    assert_eq!(
+        off.active_ids(),
+        vec![CheckId::MoneyConservation, CheckId::GoodsConservation],
+        "the gate removes liveness and nothing else"
+    );
 }
