@@ -110,8 +110,24 @@ columns redundantly alongside behavioural state.
   242-test suite was green through every one. All five were caught by mutation: break the
   thing a check is supposed to catch, confirm the check fails, revert. Each proof cost one
   build. Criterion 3 here is exactly that discipline applied to reproducibility: a
-  same-seed-identical test passes trivially if the RNG is never consumed, so the
-  different-seed counter-check and the per-tick draw-count column are what give it teeth.
+  same-seed-identical test passes trivially if the RNG is never consumed.
+- **CORRECTION — the mechanism this file first prescribed does not work, and neither does the
+  ROADMAP criterion prescribing it.** `03-RESEARCH.md` built it exactly as written — an
+  activation-order shuffle at 218 draws/tick plus a per-tick `rng_draws` column — ran 3,650
+  ticks at seeds 42 and 43, and `cmp` returned **byte-identical**. The draw count is a
+  *constant*: it proves draws happened and says nothing about which seed produced them. The
+  counter-check meant to close the vacuous-reproducibility pass was itself vacuous. Measured
+  fix, in both directions: add an `activation_digest` column — sha256 of the tick's
+  permutation, `sha2` already being a dependency — which flips the same test to differing at
+  tick 0. **The plan must amend ROADMAP criterion 3**, in the same inline-rationale shape plan
+  02-01 used for the localisation clause.
+- **Empty artifacts pass every test.** The empty pipeline writes `provenance.csv` and
+  `events.jsonl` at 0 bytes; a cross-process hash comparison over two empty files compares the
+  sha256 of the empty string with itself and passes vacuously, and pandas raises
+  `EmptyDataError` on the former. Needs an eager CSV header — with `has_headers(false)`, since
+  the obvious spelling emits the header twice — and the opening endowment emitted as events
+  read from `books.accounts()`, which is also the origin row Phase 4's conservation replay
+  requires (220 rows summing to exactly 2,000,000 cents).
 - **Criterion 4 is two separate drift tests**, not one: the `PHASES` name sequence must fail on
   reorder, and the generated schema must fail on drift against the committed one.
 - **Criterion 6 needs the binary, not the library.** Phase 2 proved the halt at library level
