@@ -99,8 +99,8 @@ Plans:
 **Plans**: 7 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — The liveness config gate, `Display` for every ledger address, and the Phase 3 process-halt constraint
-- [ ] 02-02-PLAN.md — TRACER: `Books`, the journal and the check set, proved by a tick loop that halts on a tick that traded nothing
+- [ ] 02-01-PLAN.md — The liveness config gate, `Display` for every ledger address, and the source amendments: criterion 2's localisation clause, LEDG-09, and the Phase 3 / Phase 6 cross-phase criteria
+- [ ] 02-02-PLAN.md — TRACER (one slice, split at the module seam for a resume boundary): `Books`, the journal and the check set, proved by a tick loop that halts on a tick that traded nothing
 - [ ] 02-03-PLAN.md — Goods: production, consumption, the cash-for-units swap, and the one-shape goods identity
 - [ ] 02-04-PLAN.md — Non-negativity, zero-sum, headcount in the books, and the check-order contract
 - [ ] 02-05-PLAN.md — The negative tests: four seeded corruptions, the halting tick loop, localisation across a cancelling residual
