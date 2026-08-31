@@ -553,6 +553,9 @@ incumbent_trim_per_tail = 1
 
 [ownership]
 firms_per_owner = 1
+
+[invariants]
+liveness_enabled = false
 ";
 
     /// The error text of a failed parse, or a panic naming the value that
