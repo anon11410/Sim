@@ -614,6 +614,700 @@ impl Sink for RunWriter {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The generated schema (TICK-02).
+// ---------------------------------------------------------------------------
+
+/// The generated schema, relative to the repository root.
+///
+/// Generated, committed, and compared against the generator by a test that
+/// **never writes** — the same shape as this repository's other
+/// generated-and-committed artifact, `clippy.toml`. Regeneration is a
+/// deliberate operator act with a reviewable diff, not something a test
+/// performs; a test that regenerated and then compared would be comparing the
+/// generator with itself and would pass forever.
+pub const SCHEMA_FILE: &str = "schema/schema.json";
+
+/// The command that regenerates [`SCHEMA_FILE`].
+///
+/// Named here once so that the drift test's failure message points at something
+/// a reader can actually run, rather than at a description of one.
+pub const SCHEMA_REGEN_COMMAND: &str =
+    "cargo run --locked --quiet -- --dump-schema > schema/schema.json";
+
+/// What [`first_difference`] reports for a text that has no such line.
+const NO_SUCH_LINE: &str = "<no such line>";
+
+/// The short type name of a parsed value, in the vocabulary the analysis side
+/// names its column types with.
+///
+/// An integral number is a 64-bit integer and any other number is the
+/// fractional name; a shape this classifier does not understand is reported as
+/// an explicit unsupported marker rather than as a guess. **The marker is the
+/// point.** A silent fallback would let a shape the Python side cannot read
+/// pass as though it were understood, and its absence from the committed
+/// artifact is asserted rather than assumed.
+fn value_kind(value: &serde_json::Value) -> &'static str {
+    match value {
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Bool(_) => "bool",
+        serde_json::Value::Number(number) if number.is_i64() || number.is_u64() => "int64",
+        serde_json::Value::Number(_) => "float64",
+        serde_json::Value::Null => "null",
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => "UNSUPPORTED",
+    }
+}
+
+/// The keys of a serialised record, in the order **the emitted text** carries
+/// them.
+///
+/// Read from the text rather than from the parsed value on purpose: the parsed
+/// value's backing map is ordered by key, so reading the order from it would
+/// report every record alphabetically — and declaration order is the contract
+/// the analysis side reads. Depth is tracked so that only top-level keys are
+/// collected; nothing in the stream nests today, and a record that started to
+/// would surface as an unsupported type rather than as a silently flattened
+/// one.
+///
+/// A key carrying an escape is carried through raw, so it then fails to resolve
+/// in the parsed record and is reported as unsupported. Nothing here is
+/// permitted to guess.
+fn keys_in_text_order(text: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut depth = 0usize;
+    let mut expect_key = false;
+    let mut chars = text.chars();
+    while let Some(character) = chars.next() {
+        match character {
+            '"' => {
+                let mut name = String::new();
+                while let Some(inner) = chars.next() {
+                    if inner == '\\' {
+                        name.push(inner);
+                        if let Some(escaped) = chars.next() {
+                            name.push(escaped);
+                        }
+                        continue;
+                    }
+                    if inner == '"' {
+                        break;
+                    }
+                    name.push(inner);
+                }
+                if expect_key && depth == 1 {
+                    keys.push(name);
+                }
+                expect_key = false;
+            }
+            '{' => {
+                depth += 1;
+                expect_key = depth == 1;
+            }
+            '[' => {
+                depth += 1;
+                expect_key = false;
+            }
+            '}' | ']' => {
+                depth = depth.saturating_sub(1);
+                expect_key = false;
+            }
+            ',' => expect_key = depth == 1,
+            ':' => expect_key = false,
+            _ => {}
+        }
+    }
+    keys
+}
+
+/// The ordered field-name-and-type pairs of a serialisable value, read out of
+/// the bytes the writer actually produces.
+///
+/// **This is the whole trick, and it is why no schema-derive crate is in the
+/// manifest.** The names come from the emitted text and the types from parsing
+/// that same text, so there is no second description of the types anywhere and
+/// the schema cannot disagree with the file. A field rendered by a custom
+/// serialiser is reported as whatever it actually became — an address that
+/// renders to `household:12` is typed as a string, which is what it is. A
+/// derive macro is a second, independent description that cannot see
+/// `#[serde(serialize_with = …)]`, and this project uses one on both address
+/// fields of a serialised posting: it declares them structured objects where
+/// the writer emits short strings. A generated file and a generator wrong in
+/// the same way agree with each other forever, and the drift test never fires.
+///
+/// # Panics
+///
+/// If the value does not serialise as a flat record, or if the emitted text and
+/// the record parsed back from it disagree on how many fields there are. Both
+/// are defects in the record type rather than runtime conditions.
+fn json_fields<T: Serialize>(value: &T) -> Vec<(String, &'static str)> {
+    let text = serde_json::to_string(value).expect("a log record serialises");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).expect("what the writer emitted parses back");
+    let object = parsed
+        .as_object()
+        .expect("a log record serialises as an object");
+
+    let names = keys_in_text_order(&text);
+    assert_eq!(
+        names.len(),
+        object.len(),
+        "the emitted text and the record parsed back from it disagree on the field count: {text}"
+    );
+    names
+        .into_iter()
+        .map(|name| {
+            let kind = object.get(&name).map_or("UNSUPPORTED", value_kind);
+            (name, kind)
+        })
+        .collect()
+}
+
+/// The ordered column-name-and-type pairs of a comma-separated row type.
+///
+/// The names come from the header [`header_of`] derives — the header the
+/// comma-separated writer itself emits — and the types from the same
+/// serialisation. Column order **is** the contract for the tick file; a
+/// generator that sorted its output alphabetically would not record it at all.
+///
+/// # Panics
+///
+/// If the two derivations disagree on the column list. They read one serde
+/// implementation through two writers, so a disagreement is a defect in this
+/// module rather than in the row type.
+fn csv_columns<T: Serialize>(exemplar: &T) -> Vec<(String, &'static str)> {
+    let names = header_of(exemplar);
+    let fields = json_fields(exemplar);
+    assert_eq!(
+        names.len(),
+        fields.len(),
+        "the emitted header and the serialised record disagree on the column count"
+    );
+    names
+        .into_iter()
+        .zip(fields)
+        .map(|(column, (field, kind))| {
+            assert_eq!(
+                column, field,
+                "the emitted header and the serialised record disagree on column order"
+            );
+            (column, kind)
+        })
+        .collect()
+}
+
+/// One exemplar per event variant, in declaration order. Never written to a
+/// run's file.
+///
+/// The values are arbitrary but distinguishable; only the **shape** of each
+/// record reaches the schema.
+fn event_exemplars() -> Vec<Event> {
+    vec![
+        Event::Hire {
+            tick: 0,
+            firm: "firm:0:0".to_owned(),
+            household: "household:0".to_owned(),
+            wage_cents: 0,
+        },
+        Event::Fire {
+            tick: 0,
+            firm: "firm:0:0".to_owned(),
+            household: "household:0".to_owned(),
+        },
+        Event::Dividend {
+            tick: 0,
+            firm: "firm:0:0".to_owned(),
+            household: "household:0".to_owned(),
+            amount_cents: 0,
+        },
+        Event::Bankruptcy {
+            tick: 0,
+            firm: "firm:0:0".to_owned(),
+            residual_cents: 0,
+        },
+        Event::Endowment {
+            tick: 0,
+            account: "household:0".to_owned(),
+            cash_cents: 0,
+            units: 0,
+        },
+    ]
+}
+
+/// The tag a variant carries, read out of the emitted record rather than
+/// matched on the variant.
+///
+/// # Panics
+///
+/// If a record carries no tag. The enumeration is externally tagged, so that is
+/// a change to the wire shape rather than a runtime condition.
+fn event_tag(event: &Event) -> String {
+    let text = serde_json::to_string(event).expect("an event serialises");
+    let parsed: serde_json::Value =
+        serde_json::from_str(&text).expect("what the writer emitted parses back");
+    parsed
+        .get("event")
+        .and_then(serde_json::Value::as_str)
+        .expect("every event record carries its tag")
+        .to_owned()
+}
+
+/// Append `value` as a quoted name.
+///
+/// # Panics
+///
+/// If the name would need escaping. Every name here is a Rust identifier or a
+/// fixed file name; one that needed escaping would be a wire-shape change that
+/// should be seen rather than silently encoded.
+fn push_quoted(out: &mut String, value: &str) {
+    assert!(
+        !value.contains('"') && !value.contains('\\'),
+        "a schema name that would need escaping: {value:?}"
+    );
+    out.push('"');
+    out.push_str(value);
+    out.push('"');
+}
+
+/// One field, on **one line**, in the pretty-printed spelling with a single
+/// space after each colon.
+///
+/// One type name per line is load bearing twice over. The reviewer's diff of a
+/// schema change reads field by field, which is the same reason the run record
+/// is pretty-printed; and the build's negative check over a fractional type
+/// name is a bare substring `grep` precisely because this text is hand-composed
+/// — a pattern that also pinned the key name and the spacing would pass
+/// vacuously the moment either drifted.
+fn push_field(out: &mut String, indent: &str, name: &str, kind: &str, more: bool) {
+    out.push_str(indent);
+    out.push_str("{ \"name\": ");
+    push_quoted(out, name);
+    out.push_str(", \"dtype\": ");
+    push_quoted(out, kind);
+    out.push_str(" }");
+    if more {
+        out.push(',');
+    }
+    out.push('\n');
+}
+
+/// Append one comma-separated table's ordered column list.
+fn push_table(out: &mut String, file: &str, columns: &[(String, &'static str)]) {
+    out.push_str("  ");
+    push_quoted(out, file);
+    out.push_str(": [\n");
+    for (at, (name, kind)) in columns.iter().enumerate() {
+        push_field(out, "    ", name, kind, at + 1 < columns.len());
+    }
+    out.push_str("  ],\n");
+}
+
+/// The wire format this binary writes, read out of the writers themselves
+/// (TICK-02).
+///
+/// The contract between this binary and the analysis harness across the disk
+/// boundary: the two sides share no code, so this file is the only thing that
+/// crosses it. It records the tick series' columns in order and every one as an
+/// integer (TICK-03), the provenance table's seven columns — which is what lets
+/// a downstream reader assert a type on a table that is legitimately empty
+/// (TICK-07) — and every event variant's fields in declaration order with the
+/// tag first.
+///
+/// **The text is composed here, in a fixed order, rather than through a map
+/// type**, so the ordering is a property of this function and not of a
+/// container someone could later swap.
+///
+/// Deterministic: two calls in one process return byte-identical text.
+///
+/// # Panics
+///
+/// See [`json_fields`], [`csv_columns`] and [`push_quoted`]. Every panic here
+/// is a wire-shape defect surfaced at the first call rather than at the first
+/// row of a long run.
+pub fn schema_json() -> String {
+    let mut out = String::new();
+    out.push_str("{\n  ");
+    push_quoted(&mut out, "schema_version");
+    out.push_str(": ");
+    push_quoted(&mut out, SCHEMA_VERSION);
+    out.push_str(",\n");
+
+    push_table(&mut out, TICKS_FILE, &csv_columns(&HEADER_EXEMPLAR));
+    push_table(
+        &mut out,
+        PROVENANCE_FILE,
+        &csv_columns(&provenance_exemplar()),
+    );
+
+    out.push_str("  ");
+    push_quoted(&mut out, EVENTS_FILE);
+    out.push_str(": [\n");
+    let events = event_exemplars();
+    for (at, event) in events.iter().enumerate() {
+        out.push_str("    {\n      ");
+        push_quoted(&mut out, "event");
+        out.push_str(": ");
+        push_quoted(&mut out, &event_tag(event));
+        out.push_str(",\n      ");
+        push_quoted(&mut out, "fields");
+        out.push_str(": [\n");
+        let fields = json_fields(event);
+        for (n, (name, kind)) in fields.iter().enumerate() {
+            push_field(&mut out, "        ", name, kind, n + 1 < fields.len());
+        }
+        out.push_str("      ]\n    }");
+        if at + 1 < events.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("  ]\n}\n");
+    out
+}
+
+/// The first line at which two texts differ: the line number counting from one,
+/// then that line from each side. `None` when the two texts are identical.
+///
+/// The raw equality assertion over a schema prints a multi-kilobyte
+/// single-line escaped blob that nobody reads. A line number and two lines is a
+/// diagnostic someone can act on.
+///
+/// Split **including** the terminator, so that two texts differing only in a
+/// trailing newline are reported as differing rather than as equal. A line that
+/// exists on one side only is reported as [`NO_SUCH_LINE`].
+pub fn first_difference(left: &str, right: &str) -> Option<(usize, String, String)> {
+    let mut lefts = left.split_inclusive('\n');
+    let mut rights = right.split_inclusive('\n');
+    let mut number = 0usize;
+    loop {
+        number += 1;
+        match (lefts.next(), rights.next()) {
+            (None, None) => return None,
+            (left_line, right_line) if left_line == right_line => {}
+            (left_line, right_line) => {
+                return Some((
+                    number,
+                    left_line.map_or_else(|| NO_SUCH_LINE.to_owned(), str::to_owned),
+                    right_line.map_or_else(|| NO_SUCH_LINE.to_owned(), str::to_owned),
+                ));
+            }
+        }
+    }
+}
+
+/// The generated schema (TICK-02).
+///
+/// Named `schema` so that `cargo test --lib log::schema` — the command this
+/// plan's verification uses — reaches this module and not an empty set.
+#[cfg(test)]
+mod schema {
+    use super::*;
+
+    fn generated() -> serde_json::Value {
+        serde_json::from_str(&schema_json()).expect("the generated schema is valid JSON")
+    }
+
+    /// The ordered `(name, type)` pairs the generated schema lists for one
+    /// comma-separated table.
+    fn listed(schema: &serde_json::Value, file: &str) -> Vec<(String, String)> {
+        schema[file]
+            .as_array()
+            .unwrap_or_else(|| panic!("the schema lists {file}"))
+            .iter()
+            .map(|entry| {
+                (
+                    entry["name"]
+                        .as_str()
+                        .expect("an entry carries a name")
+                        .to_owned(),
+                    entry["dtype"]
+                        .as_str()
+                        .expect("an entry carries a type")
+                        .to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    /// The ordered `(name, type)` pairs listed for one event variant.
+    fn variant(schema: &serde_json::Value, tag: &str) -> Vec<(String, String)> {
+        let entry = schema[EVENTS_FILE]
+            .as_array()
+            .expect("the schema lists the event stream")
+            .iter()
+            .find(|entry| entry["event"].as_str() == Some(tag))
+            .unwrap_or_else(|| panic!("the schema lists the {tag} variant"));
+        entry["fields"]
+            .as_array()
+            .expect("a variant carries its fields")
+            .iter()
+            .map(|field| {
+                (
+                    field["name"]
+                        .as_str()
+                        .expect("a field carries a name")
+                        .to_owned(),
+                    field["dtype"]
+                        .as_str()
+                        .expect("a field carries a type")
+                        .to_owned(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn two_calls_in_one_process_return_identical_bytes() {
+        assert_eq!(schema_json(), schema_json());
+    }
+
+    #[test]
+    fn the_key_order_comes_from_the_text_and_not_from_the_parsed_value() {
+        // The load-bearing property of the whole design, and the one a
+        // container would quietly take away: the record parsed back from the
+        // emitted text has a key-ordered backing map, so a reader that took its
+        // order from THERE would report every record alphabetically. These
+        // fields are declared in an order no sort produces.
+        #[derive(Serialize)]
+        struct OutOfOrder {
+            zebra: i64,
+            alpha: String,
+            middle: bool,
+        }
+
+        let fields = json_fields(&OutOfOrder {
+            zebra: 1,
+            alpha: "a".to_owned(),
+            middle: true,
+        });
+        assert_eq!(
+            fields,
+            vec![
+                ("zebra".to_owned(), "int64"),
+                ("alpha".to_owned(), "string"),
+                ("middle".to_owned(), "bool"),
+            ],
+            "the field order was taken from the parsed value rather than from the emitted text"
+        );
+    }
+
+    #[test]
+    fn a_custom_serialised_address_is_typed_as_the_string_it_becomes() {
+        // THE measurement that rejects a schema-derive crate, asserted here as
+        // a property of this generator rather than left in the research. A
+        // derive is a second description that cannot see
+        // `#[serde(serialize_with = …)]`; compiled against this exact type it
+        // declares both address fields structured objects, while the writer
+        // emits `household:12`. Reading the type out of the emitted text
+        // reports what the field actually became.
+        use crate::books::{Posting, PostingKind};
+        use crate::ids::{Account, FirmId, FirmSlot, GoodId, HouseholdId};
+
+        let posting = Posting {
+            seq: 0,
+            kind: PostingKind::Transfer,
+            debit: Account::Household(HouseholdId(12)),
+            credit: Account::Firm(FirmId {
+                slot: FirmSlot(3),
+                generation: 0,
+            }),
+            debit_cents: 100,
+            credit_cents: 100,
+            good: GoodId(0),
+            units_out: 0,
+            units_in: 0,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        };
+
+        let text = serde_json::to_string(&posting).expect("a posting serialises");
+        assert!(
+            text.contains("\"debit\":\"household:12\""),
+            "the writer no longer renders an address as a short string: {text}"
+        );
+
+        let fields = json_fields(&posting);
+        for name in ["debit", "credit"] {
+            let (_, kind) = fields
+                .iter()
+                .find(|(field, _)| field == name)
+                .unwrap_or_else(|| panic!("a posting carries a {name} field"));
+            assert_eq!(
+                *kind, "string",
+                "{name} was typed as something other than the string it renders as"
+            );
+        }
+    }
+
+    #[test]
+    fn every_tick_column_is_an_integer_in_file_order() {
+        let schema = generated();
+        let listed = listed(&schema, TICKS_FILE);
+
+        let names: Vec<String> = listed.iter().map(|(name, _)| name.clone()).collect();
+        assert_eq!(
+            names,
+            ticks_header(),
+            "the schema and the header the writer emits disagree on the tick columns"
+        );
+        for (name, kind) in &listed {
+            assert_eq!(kind, "int64", "the tick column {name} is not an integer");
+        }
+    }
+
+    #[test]
+    fn the_provenance_table_carries_seven_columns_with_their_declared_types() {
+        let schema = generated();
+        let listed = listed(&schema, PROVENANCE_FILE);
+        assert_eq!(
+            listed.len(),
+            7,
+            "the provenance table lost or gained a column"
+        );
+
+        // Written out ONCE, here. This is the contract Phase 4 reads a type
+        // from for a table that is legitimately empty (TICK-07).
+        assert_eq!(
+            listed,
+            vec![
+                ("tick".to_owned(), "int64".to_owned()),
+                ("agent".to_owned(), "string".to_owned()),
+                ("decision".to_owned(), "string".to_owned()),
+                ("input_a".to_owned(), "int64".to_owned()),
+                ("input_b".to_owned(), "int64".to_owned()),
+                ("outcome".to_owned(), "int64".to_owned()),
+                ("rule".to_owned(), "string".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn every_variant_lists_its_fields_in_declaration_order_with_the_tag_first() {
+        let schema = generated();
+
+        // Written out ONCE, here, and compared against the generated text: a
+        // expectation rebuilt from the type would agree with any reordering the
+        // type underwent. This is the same line the writer emits, read field by
+        // field.
+        assert_eq!(
+            variant(&schema, "hire"),
+            vec![
+                ("event".to_owned(), "string".to_owned()),
+                ("tick".to_owned(), "int64".to_owned()),
+                ("firm".to_owned(), "string".to_owned()),
+                ("household".to_owned(), "string".to_owned()),
+                ("wage_cents".to_owned(), "int64".to_owned()),
+            ]
+        );
+        assert_eq!(
+            variant(&schema, "endowment"),
+            vec![
+                ("event".to_owned(), "string".to_owned()),
+                ("tick".to_owned(), "int64".to_owned()),
+                ("account".to_owned(), "string".to_owned()),
+                ("cash_cents".to_owned(), "int64".to_owned()),
+                ("units".to_owned(), "int64".to_owned()),
+            ]
+        );
+
+        // And the tag is first for every variant, checked against the bytes the
+        // writer produces rather than against the list above.
+        for event in event_exemplars() {
+            let tag = event_tag(&event);
+            let line = serde_json::to_string(&event).expect("an event serialises");
+            assert!(
+                line.starts_with(&format!("{{\"event\":\"{tag}\",")),
+                "the tag is not the first field of {line}"
+            );
+            let listed = variant(&schema, &tag);
+            assert_eq!(
+                listed[0].0, "event",
+                "the schema lists {tag} without its tag"
+            );
+            assert_eq!(
+                listed.len(),
+                json_fields(&event).len(),
+                "the schema and the emitted record disagree on the field count for {tag}"
+            );
+        }
+    }
+
+    #[test]
+    fn nothing_is_unsupported_and_no_type_is_fractional() {
+        let text = schema_json();
+        assert!(
+            !text.contains("UNSUPPORTED"),
+            "a field serialised to a shape the classifier does not understand"
+        );
+        assert!(
+            !text.contains("float"),
+            "a fractional type reached one of the two tabular files"
+        );
+        assert!(!text.contains("null"), "an absent value reached the schema");
+    }
+
+    #[test]
+    fn exactly_one_type_name_per_line_in_the_pretty_printed_spelling() {
+        // The build's fractional-type check is a bare substring grep over this
+        // hand-composed text, so the spelling is pinned here rather than there.
+        let text = schema_json();
+        assert!(
+            !text.contains("\"dtype\":\""),
+            "a type was emitted in the compact spelling, without the space after the colon"
+        );
+        for line in text.lines() {
+            assert!(
+                line.matches("\"dtype\"").count() <= 1,
+                "more than one type name on one line: {line}"
+            );
+        }
+        assert!(
+            text.contains("{ \"name\": \"tick\", \"dtype\": \"int64\" },"),
+            "the one-field-per-line spelling changed: {text}"
+        );
+    }
+
+    #[test]
+    fn the_classifier_reports_an_unsupported_shape_rather_than_guessing() {
+        use serde_json::json;
+
+        assert_eq!(value_kind(&json!("household:12")), "string");
+        assert_eq!(value_kind(&json!(true)), "bool");
+        assert_eq!(value_kind(&json!(-7)), "int64");
+        assert_eq!(value_kind(&json!(u64::MAX)), "int64");
+        assert_eq!(value_kind(&json!(null)), "null");
+        assert_eq!(value_kind(&json!([1, 2])), "UNSUPPORTED");
+        assert_eq!(value_kind(&json!({ "a": 1 })), "UNSUPPORTED");
+    }
+
+    #[test]
+    fn the_difference_helper_reports_the_first_differing_line() {
+        let left = "one\ntwo\nthree\n";
+        let right = "one\nTWO\nthree\n";
+        assert_eq!(
+            first_difference(left, right),
+            Some((2, "two\n".to_owned(), "TWO\n".to_owned()))
+        );
+
+        // A line present on one side only, and a difference that is only a
+        // trailing terminator — both are differences, and a helper that split
+        // on lines alone would miss the second.
+        assert_eq!(
+            first_difference("one\n", "one\ntwo\n"),
+            Some((2, NO_SUCH_LINE.to_owned(), "two\n".to_owned()))
+        );
+        assert_eq!(
+            first_difference("one\n", "one"),
+            Some((1, "one\n".to_owned(), "one".to_owned()))
+        );
+    }
+
+    #[test]
+    fn identical_texts_have_no_difference() {
+        assert_eq!(first_difference(&schema_json(), &schema_json()), None);
+        assert_eq!(first_difference("", ""), None);
+    }
+}
+
 /// The event stream's wire shape (TICK-04).
 ///
 /// Named `events` so that `cargo test --lib log::events` — the command the
