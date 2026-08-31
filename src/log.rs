@@ -19,18 +19,34 @@
 //! either failure is caught, and the caller must call it before it inspects
 //! the run's outcome.
 //!
-//! **The header is written eagerly, at construction.** A run that writes zero
-//! rows — which is what a run halted by the invariant phase produces, since
-//! the check is pipeline position 7 and the log is position 8 — would
-//! otherwise leave a zero-byte file, and a zero-byte file is not an openable
-//! table on the analysis side. The header is what keeps a halted run's
-//! artefact openable.
+//! **Both comma-separated tables write their header eagerly, at
+//! construction**, and the reason differs slightly between them. A run halted
+//! by the invariant phase writes zero tick rows, since the check is pipeline
+//! position 7 and the log is position 8; and *every* run at this phase writes
+//! zero provenance rows, because nothing decides anything yet. Either way a
+//! lazily-written header leaves a **zero-byte** file — the writer emits its own
+//! header only on the first serialised row — and a zero-byte comma-separated
+//! file is not an openable table on the analysis side, which raises rather than
+//! returning an empty frame.
+//!
+//! The obvious spelling emits the header **twice**: the writer emits its own on
+//! the first serialised row in addition to the one written explicitly, and the
+//! duplicate then reads back as a row of text, widening every column with it.
+//! Both writers are therefore built with automatic headers off.
 //!
 //! The header is **derived from the serialisation**, not typed out: one
 //! exemplar row is serialised through a throwaway header-enabled writer and its
-//! first line becomes [`ticks_header`]. One source for the column names means a
-//! later schema emitter cannot disagree with the file it describes, and a
-//! renamed field cannot leave a stale hand-written header behind.
+//! first line becomes the column list. [`header_of`] is the single mechanism
+//! and [`ticks_header`] and [`provenance_header`] both go through it, so there
+//! is exactly one source of column names in this module — a later schema
+//! emitter cannot disagree with the file it describes, and a renamed field
+//! cannot leave a stale hand-written header behind.
+//!
+//! **One consequence handed forward to Phase 4.** A header-only table reads
+//! back with every column typed as an object rather than as an integer, so the
+//! harness's dtype assertion must be conditional on a non-empty frame, or must
+//! read the dtype from the generated schema — which is one of the reasons that
+//! schema carries dtypes at all.
 //!
 //! **Nothing in the event stream nests, and that is a decision rather than a
 //! simplification** (resolving 03-RESEARCH.md Open Question 4). A nested record
@@ -76,6 +92,9 @@ pub const TICKS_FILE: &str = "ticks.csv";
 
 /// The event stream, relative to the run directory. One record per line.
 pub const EVENTS_FILE: &str = "events.jsonl";
+
+/// The decision-provenance table, relative to the run directory.
+pub const PROVENANCE_FILE: &str = "provenance.csv";
 
 /// One row of the per-tick series.
 ///
@@ -285,6 +304,114 @@ pub fn endowment_events(books: &crate::books::Books, tick: u32) -> Vec<Event> {
         .collect()
 }
 
+/// Which decision a provenance row describes (TICK-07).
+///
+/// **A fixed enumeration, not a string.** This is what makes TICK-07's "never
+/// free text" a property of the type rather than of a reviewer's discipline: a
+/// caller cannot write a decision name that is not one of these, and the
+/// analysis side gets a closed vocabulary it can count over. Variants are
+/// appended as the phases that make the decisions arrive; the serialised form
+/// is the snake-cased variant name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Decision {
+    /// A firm set its posted price. Phase 9.
+    Price,
+    /// A firm set its wage offer. Phase 6.
+    Wage,
+    /// A firm changed its labour demand. Phase 6.
+    Hire,
+}
+
+impl Decision {
+    /// Every decision, for a test that must cover the whole vocabulary.
+    pub const ALL: [Decision; 3] = [Decision::Price, Decision::Wage, Decision::Hire];
+}
+
+/// Which branch of a decision rule actually fired (TICK-07).
+///
+/// **The highest-value column in the table, and it costs nothing.** When prices
+/// spiral in Phase 9, a frequency count over this column localises the defect to
+/// one branch in one query — which is not recoverable from the inputs and the
+/// outcome alone, because two branches can produce the same number.
+///
+/// A fixed enumeration for the same reason [`Decision`] is one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Rule {
+    /// The upward branch fired.
+    Raised,
+    /// The downward branch fired.
+    Lowered,
+    /// Neither branch fired and the previous value stood.
+    Held,
+    /// A bound bound: the rule's own arithmetic was overridden by a floor or a
+    /// ceiling, so the outcome describes the bound rather than the branch.
+    Bounded,
+}
+
+impl Rule {
+    /// Every branch, for a test that must cover the whole vocabulary.
+    pub const ALL: [Rule; 4] = [Rule::Raised, Rule::Lowered, Rule::Held, Rule::Bounded];
+}
+
+/// One row of the decision-provenance table (TICK-07): what an agent decided,
+/// what it decided from, and which branch of the rule produced it.
+///
+/// **Seven flat columns, none of them optional and none of them free text.**
+/// The two enumerated columns are enumerations of the type system; every other
+/// column is an integer.
+///
+/// *No optional column*, on exactly the terms [`TickRow`] sets out: an absent
+/// value writes an empty cell, an empty cell reads back as a missing value, and
+/// one missing value widens an otherwise-integer column to a fractional one —
+/// the degradation the whole integer-cents decision exists to prevent. A value
+/// that can genuinely be absent later gets a documented sentinel integer.
+///
+/// The agent is a **rendered address**, the same string the event stream and a
+/// serialised posting carry, so the three files join on one spelling.
+///
+/// **This phase writes zero rows**, by definition: nothing decides anything
+/// yet. The table is present and schema-complete anyway, because provenance
+/// added retroactively never covers the early history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProvenanceRow {
+    pub tick: u32,
+    pub agent: String,
+    pub decision: Decision,
+    pub input_a: i64,
+    pub input_b: i64,
+    pub outcome: i64,
+    pub rule: Rule,
+}
+
+/// The row the provenance header is derived from. Never written to a run's
+/// file.
+fn provenance_exemplar() -> ProvenanceRow {
+    ProvenanceRow {
+        tick: 0,
+        agent: String::new(),
+        decision: Decision::Price,
+        input_a: 0,
+        input_b: 0,
+        outcome: 0,
+        rule: Rule::Held,
+    }
+}
+
+/// The column names of [`ProvenanceRow`], in file order.
+///
+/// Derived through [`header_of`] — the same single mechanism [`ticks_header`]
+/// uses. Two independent header sources is the defect this shares a function to
+/// prevent: a renamed field would otherwise leave one of them stale.
+///
+/// # Panics
+///
+/// See [`header_of`].
+pub fn provenance_header() -> Vec<String> {
+    header_of(provenance_exemplar())
+}
+
 /// Where a run's records go.
 ///
 /// The row method takes no result: an implementation that can fail records its
@@ -298,6 +425,9 @@ pub trait Sink {
 
     /// Record one event.
     fn event(&mut self, event: Event);
+
+    /// Record one decision's provenance.
+    fn provenance(&mut self, row: ProvenanceRow);
 
     /// Flush everything and report the first failure, if there was one.
     ///
@@ -315,6 +445,8 @@ impl Sink for NullSink {
 
     fn event(&mut self, _event: Event) {}
 
+    fn provenance(&mut self, _row: ProvenanceRow) {}
+
     fn finish(&mut self) -> io::Result<()> {
         Ok(())
     }
@@ -326,6 +458,7 @@ impl Sink for NullSink {
 pub struct VecSink {
     pub rows: Vec<TickRow>,
     pub events: Vec<Event>,
+    pub provenance: Vec<ProvenanceRow>,
 }
 
 impl Sink for VecSink {
@@ -335,6 +468,10 @@ impl Sink for VecSink {
 
     fn event(&mut self, event: Event) {
         self.events.push(event);
+    }
+
+    fn provenance(&mut self, row: ProvenanceRow) {
+        self.provenance.push(row);
     }
 
     fn finish(&mut self) -> io::Result<()> {
@@ -349,6 +486,10 @@ pub struct RunWriter {
     /// termination runs no destructors, so on the halt path there is no drop to
     /// rely on.
     events: BufWriter<File>,
+    /// The decision-provenance table. Its header is written at construction —
+    /// this phase writes zero rows, and a lazily-written header would leave a
+    /// zero-byte file the analysis side refuses to open.
+    provenance: csv::Writer<File>,
     /// The first failure seen, held until [`Sink::finish`] reports it.
     first_error: Option<io::Error>,
 }
@@ -378,9 +519,18 @@ impl RunWriter {
 
         let events = BufWriter::new(File::create(dir.join(EVENTS_FILE))?);
 
+        let mut provenance = csv::WriterBuilder::new()
+            .has_headers(false)
+            .from_writer(File::create(dir.join(PROVENANCE_FILE))?);
+        provenance
+            .write_record(provenance_header())
+            .map_err(io::Error::other)?;
+        provenance.flush()?;
+
         Ok(RunWriter {
             ticks,
             events,
+            provenance,
             first_error: None,
         })
     }
@@ -414,8 +564,21 @@ impl Sink for RunWriter {
         }
     }
 
+    fn provenance(&mut self, row: ProvenanceRow) {
+        if self.first_error.is_some() {
+            return;
+        }
+        if let Err(error) = self.provenance.serialize(row) {
+            self.first_error = Some(io::Error::other(error));
+        }
+    }
+
     fn finish(&mut self) -> io::Result<()> {
-        let flushed = self.ticks.flush().and_then(|()| self.events.flush());
+        let flushed = self
+            .ticks
+            .flush()
+            .and_then(|()| self.events.flush())
+            .and_then(|()| self.provenance.flush());
         match self.first_error.take() {
             Some(error) => Err(error),
             None => flushed,
@@ -764,6 +927,185 @@ mod endowment {
             );
         }
         assert!(text.ends_with('\n'), "the last record is terminated");
+    }
+}
+
+/// The decision-provenance table (TICK-07).
+///
+/// Named `provenance` so that `cargo test --lib log::provenance` reaches this
+/// module and not an empty set.
+#[cfg(test)]
+mod provenance {
+    use super::*;
+
+    fn a_row(tick: u32) -> ProvenanceRow {
+        ProvenanceRow {
+            tick,
+            agent: "firm:3:0".to_owned(),
+            decision: Decision::Price,
+            input_a: 1_200,
+            input_b: 47,
+            outcome: 1_250,
+            rule: Rule::Raised,
+        }
+    }
+
+    fn text_of(directory: &tempfile::TempDir) -> String {
+        std::fs::read_to_string(directory.path().join(PROVENANCE_FILE))
+            .expect("the provenance file exists")
+    }
+
+    #[test]
+    fn the_header_is_the_declared_column_order() {
+        // Written out ONCE, here, precisely because `provenance_header`
+        // derives it: if both sides derived it, the test would compare the
+        // function with itself and pass however the columns were renamed. This
+        // list is the contract plan 03-04 freezes.
+        assert_eq!(
+            provenance_header(),
+            vec![
+                "tick", "agent", "decision", "input_a", "input_b", "outcome", "rule",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_header_comes_from_the_same_derivation_the_tick_file_uses() {
+        // Two independent header sources is the defect this asserts against:
+        // the provenance header must be what `header_of` produces from the row
+        // type, exactly as the tick header is.
+        assert_eq!(provenance_header(), header_of(provenance_exemplar()));
+        assert_eq!(ticks_header(), header_of(HEADER_EXEMPLAR));
+        assert_ne!(
+            provenance_header(),
+            ticks_header(),
+            "two different tables must not share a column list"
+        );
+    }
+
+    #[test]
+    fn a_writer_that_received_no_row_still_leaves_a_full_header() {
+        // The default outcome at this phase, and the one the measured defect
+        // lives in: without the eager header this file is ZERO BYTES, the
+        // analysis side raises rather than returning an empty frame, and a hash
+        // comparison against another empty file compares the digest of the
+        // empty string with itself.
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let mut writer = RunWriter::new(directory.path()).expect("the run writer opens");
+        writer.finish().expect("the run writer finishes");
+
+        let text = text_of(&directory);
+        assert_eq!(
+            text,
+            format!("{}\n", provenance_header().join(",")),
+            "a zero-row run must leave a header, not a zero-byte file"
+        );
+        assert_eq!(text.lines().count(), 1, "exactly one line: {text:?}");
+    }
+
+    #[test]
+    fn the_header_is_written_exactly_once() {
+        // The double-header defect is silent: the writer emits its OWN header
+        // on the first serialised row, so a file with a hand-written header as
+        // well still opens — and the duplicate reads back as a row of text,
+        // widening every column with it.
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let mut writer = RunWriter::new(directory.path()).expect("the run writer opens");
+        writer.provenance(a_row(0));
+        writer.provenance(a_row(1));
+        writer.finish().expect("the run writer finishes");
+
+        let text = text_of(&directory);
+        let lines: Vec<&str> = text.lines().collect();
+        let header = provenance_header().join(",");
+        assert_eq!(lines.len(), 3, "header plus two rows: {text:?}");
+        assert_eq!(lines[0], header);
+        assert_ne!(
+            lines[1], header,
+            "the header was emitted a second time, and the duplicate reads back as a row of text"
+        );
+        assert_eq!(
+            text.matches(&header).count(),
+            1,
+            "the header string appears more than once: {text:?}"
+        );
+    }
+
+    #[test]
+    fn one_row_writes_a_header_line_then_a_data_line() {
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let mut writer = RunWriter::new(directory.path()).expect("the run writer opens");
+        writer.provenance(a_row(7));
+        writer.finish().expect("the run writer finishes");
+
+        let text = text_of(&directory);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "header then one row: {text:?}");
+        assert_eq!(lines[0], provenance_header().join(","));
+        assert_eq!(lines[1], "7,firm:3:0,price,1200,47,1250,raised");
+        assert!(
+            !text.contains('\r'),
+            "the line terminator carries no carriage return"
+        );
+    }
+
+    #[test]
+    fn no_cell_is_ever_empty() {
+        // An empty cell is what an optional column writes, and one missing
+        // value widens an otherwise-integer column to a fractional one.
+        let directory = tempfile::tempdir().expect("a temporary directory");
+        let mut writer = RunWriter::new(directory.path()).expect("the run writer opens");
+        writer.provenance(a_row(0));
+        writer.finish().expect("the run writer finishes");
+
+        let text = text_of(&directory);
+        assert!(
+            !text.contains(",,"),
+            "an empty cell reached the file: {text:?}"
+        );
+        for line in text.lines() {
+            let cells: Vec<&str> = line.split(',').collect();
+            assert_eq!(cells.len(), 7, "a row of the wrong width: {line}");
+            for (at, cell) in cells.iter().enumerate() {
+                assert!(!cell.is_empty(), "column {at} is empty in {line:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_decision_and_rule_columns_are_closed_vocabularies() {
+        // TICK-07's "never free text" is a property of the two enumerations,
+        // and this asserts the wire form each of their variants takes. A
+        // caller cannot write a token that is not in one of these two lists,
+        // because there is no constructor that would accept one.
+        let decisions: Vec<String> = Decision::ALL
+            .iter()
+            .map(|d| serde_json::to_string(d).expect("a decision serialises"))
+            .collect();
+        assert_eq!(
+            decisions,
+            vec!["\"price\"", "\"wage\"", "\"hire\""],
+            "the decision vocabulary changed shape"
+        );
+
+        let rules: Vec<String> = Rule::ALL
+            .iter()
+            .map(|r| serde_json::to_string(r).expect("a rule serialises"))
+            .collect();
+        assert_eq!(
+            rules,
+            vec!["\"raised\"", "\"lowered\"", "\"held\"", "\"bounded\""],
+            "the rule vocabulary changed shape"
+        );
+    }
+
+    #[test]
+    fn the_vector_sink_keeps_the_rows_in_order() {
+        let mut sink = VecSink::default();
+        sink.provenance(a_row(0));
+        sink.provenance(a_row(1));
+        sink.finish().expect("the vector sink finishes");
+        assert_eq!(sink.provenance, vec![a_row(0), a_row(1)]);
     }
 }
 
