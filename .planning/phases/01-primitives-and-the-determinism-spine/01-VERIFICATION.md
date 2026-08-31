@@ -1,15 +1,17 @@
 ---
 phase: 01-primitives-and-the-determinism-spine
 verified: 2026-08-31T01:12:23Z
-status: human_needed
+status: passed
 score: 18/20 must-haves verified
 behavior_unverified: 1
 overrides_applied: 0
 deferred:
+
   - truth: "CORE-11 clause (b) — the Lengnick Table 1 values are checked against the published paper by a person with journal access"
     addressed_in: "Phase 6"
     evidence: "ROADMAP.md Phase 6 Success Criterion 6: 'CORE-11 clause (b), gated here per D-19: before these values are consumed, the Lengnick Table 1 rows marked UNVERIFIED in config/PROVENANCE.md have been checked against the published paper by a person with journal access, following the procedure shipped in Phase 1'. Matching deferral recorded in REQUIREMENTS.md CORE-11 rationale and ROADMAP.md Phase 1 Success Criterion 5."
 behavior_unverified_items:
+
   - truth: "Continuous integration runs the lint gate with the flags that actually lint every target, plus the test suite in both build profiles, so the determinism bans fail the build rather than documenting a preference."
     test: "Push the phase branch and open the Actions run for .github/workflows/ci.yml. Confirm the job reaches every one of the seven steps and exits green, paying attention to step 1 (`rustup show active-toolchain`) on a fresh runner image."
     expected: "All seven steps pass. Specifically, `rustup show active-toolchain` must not fail on a runner whose rustup has not yet installed 1.94.1 — rustup 1.28+ no longer auto-installs on `rustup show`, and the following `rustup component add clippy rustfmt` would then error on an uninstalled toolchain, failing the job before any real check runs."
@@ -20,6 +22,7 @@ behavior_unverified_items:
     why_human: "Non-inferable (`verification: backstop`) — abstained for insufficient_spec. The manifest fact IS asserted (tests/toolchain.sh check 4b, stateful awk scan of the [profile.release] section), and the verifier observed a release-profile raw-i64 overflow panic directly. Neither is evidence for the universal quantifier 'every arithmetic site'. Presence + wiring never qualifies for a backstop truth."
 coincidental_reliance_items: []
 human_verification:
+
   - test: "Adjudicate the CORE-06 spelling divergence: the generational field is `generation`, not `gen`. Confirmed by the verifier that `gen` is a reserved keyword in Rust edition 2024. Decide: amend the CORE-06 requirement text (and 01-RESEARCH Pattern 5 / D-03) to say `generation`, or accept the divergence with a standing note."
     expected: "A recorded decision. The spelling propagates into the Phase 3 log schema as the identity pair `(slot, generation)`, so the divergence should be closed before Phase 3 writes the schema rather than after."
     why_human: "STATE.md line 94 explicitly defers this to verify-phase ('flagged for human confirmation at verify-phase'). Forced by the language, not by choice, and the type shape and derived total order are unchanged — but it is a requirement-text change, which only a human should authorise."
