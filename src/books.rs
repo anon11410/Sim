@@ -125,9 +125,28 @@ const ONLY_GOOD: GoodId = GoodId(0);
 /// Every good these books carry.
 ///
 /// Exactly one in v1. Phase 5 (PROD-01) widens this into a goods table with
-/// recipes; that is a change to the **dimension** of the containers below and
-/// not to the shape of the identity, and every accessor is already
-/// account-and-good-shaped, so no call site moves when it happens.
+/// recipes. The **shape of the identity** does not change and neither does the
+/// signature of any accessor — every one of them is already
+/// account-and-good-shaped — but the work Phase 5 inherits is more than
+/// widening this array, and stating otherwise would send whoever does it
+/// looking for a change that is not there.
+///
+/// **What Phase 5 actually has to change**, listed here because a promise that
+/// nothing moves is the kind that is believed until it is tested:
+///
+/// 1. `household_stock` and `firm_stock` become a `Vec` per good.
+/// 2. [`Books::total_stock`], [`Books::produced`] and [`Books::consumed`] take
+///    a [`GoodId`] today and **ignore it** past the `carries` check, returning
+///    crate-wide totals. Their bodies have to start using it, or
+///    `total_stock(GoodId(1))` returns the sum over both goods while looking
+///    perfectly well typed.
+/// 3. [`Books::produced`] and [`Books::consumed`] are backed by two scalar
+///    fields, which become per-good.
+/// 4. [`Books::goods_residual_units`] is one running residual for the whole
+///    books. It becomes per-good, and
+///    [`Books::goods_residual_units_for`] is the accessor whose body absorbs
+///    that change — `invariants::check_goods` already reads it per good inside
+///    its loop, so the check itself does not move.
 static GOODS: [GoodId; 1] = [ONLY_GOOD];
 
 /// What a posting records.
@@ -1190,6 +1209,11 @@ impl Books {
     /// because every operation refuses it with
     /// [`PostError::UnknownGood`] before touching a vector. Same for
     /// [`Books::produced`] and [`Books::consumed`].
+    ///
+    /// **Past the `carries` check the argument is ignored**, because there is
+    /// one good and one pair of stock vectors. Phase 5 has to change this body,
+    /// not only this module's `GOODS` array — see the note there. Until it does,
+    /// `total_stock` of any carried good is the crate-wide total.
     pub fn total_stock(&self, good: GoodId) -> i64 {
         if !Books::carries(good) {
             return 0;
@@ -1202,6 +1226,9 @@ impl Books {
 
     /// Units of `good` that have entered the system, ever — the constructor's
     /// inventory endowment plus every [`Books::produce`].
+    ///
+    /// Backed by one scalar field, so past the `carries` check the argument is
+    /// ignored. Phase 5 has to change this body; see the note on `GOODS`.
     pub fn produced(&self, good: GoodId) -> i64 {
         if !Books::carries(good) {
             return 0;
@@ -1211,6 +1238,9 @@ impl Books {
 
     /// Units of `good` that have left the system, ever, through
     /// [`Books::consume`].
+    ///
+    /// Backed by one scalar field, so past the `carries` check the argument is
+    /// ignored. Phase 5 has to change this body; see the note on `GOODS`.
     pub fn consumed(&self, good: GoodId) -> i64 {
         if !Books::carries(good) {
             return 0;
@@ -1218,9 +1248,37 @@ impl Books {
         self.consumed
     }
 
-    /// The goods identity's running residual, accumulated from the posting legs.
-    /// Zero when the run conserves.
+    /// The goods identity's running residual over the whole books, accumulated
+    /// from the posting legs. Zero when the run conserves.
+    ///
+    /// The whole-books quantity, and it stays one after Phase 5: a tick
+    /// boundary, a seeded fault or a serialised diagnostic wants "is anything
+    /// unaccounted for", not "is anything unaccounted for in good 3". The
+    /// per-good question is [`Books::goods_residual_units_for`].
     pub fn goods_residual_units(&self) -> i64 {
+        self.goods_residual_units
+    }
+
+    /// The goods identity's running residual **for one good**, accumulated from
+    /// the posting legs. Zero when that good conserves.
+    ///
+    /// In v1 there is one residual and the single carried good owns all of it,
+    /// so this returns the same number [`Books::goods_residual_units`] does.
+    /// It exists as a separate accessor because `invariants::check_goods` reads
+    /// it **inside** its per-good loop, and that is what stops the loop body
+    /// from silently becoming a broadcast when Phase 5 widens the table: a
+    /// shared residual compared against every good in turn would name `GOODS[0]`
+    /// as the offending good whatever the truth, sending a debugger to the wrong
+    /// column — the exact failure `check_goods` was kept unfactored to avoid.
+    /// Phase 5 changes this body and the check does not move.
+    ///
+    /// A good these books do not carry yields zero, on the same terms
+    /// [`Books::total_stock`] does: no posting naming it can ever have been
+    /// recorded, because every operation refuses it before touching a vector.
+    pub fn goods_residual_units_for(&self, good: GoodId) -> i64 {
+        if !Books::carries(good) {
+            return 0;
+        }
         self.goods_residual_units
     }
 

@@ -524,16 +524,31 @@ fn check_money(books: &Books, tick: u32) -> Result<(), Violation> {
 /// every tick of every run. A conservation check whose loop never runs passes
 /// vacuously.
 ///
+/// **What Phase 5 inherits, stated rather than promised away.** This check does
+/// not move when the goods table widens: every quantity it reads is taken per
+/// good, inside the loop, through an accessor. The work is on the other side of
+/// those accessors — `Books::total_stock`, `Books::produced` and
+/// `Books::consumed` take a `GoodId` today and ignore it past their `carries`
+/// check, and the running goods residual is one number for the whole books.
+/// `src/books.rs` lists that work on its `GOODS` array. Until it is done,
+/// widening the table alone would leave this check comparing crate-wide totals
+/// against a per-good identity while looking perfectly well typed.
+///
 /// Deliberately **not** factored into a shared helper with [`check_money`].
 /// The cash residual and the goods residual are two different quantities, and a
 /// generic scan that hid which one it was reporting would put the wrong number
 /// in the message and send a debugger to the wrong column.
 fn check_goods(books: &Books, tick: u32) -> Result<(), Violation> {
-    // One residual for one good in v1. Phase 5's goods table makes this a
-    // per-good quantity; the loop below is already shaped for that.
-    let journal_residual_units = books.goods_residual_units();
-
     for &good in books.goods() {
+        // Read PER GOOD, inside the loop. In v1 there is one residual and the
+        // single carried good owns all of it, so this is the same number every
+        // time round — but hoisting the read out of the loop is what would turn
+        // the comparison into a broadcast the moment Phase 5 widens the table:
+        // one shared residual compared against every good in turn names GOODS[0]
+        // as the offending good whatever the truth, and sends a debugger to the
+        // wrong column. `Books::goods_residual_units_for` is the accessor whose
+        // body Phase 5 changes; this loop does not move.
+        let journal_residual_units = books.goods_residual_units_for(good);
         let produced = books.produced(good);
         let consumed = books.consumed(good);
         let stock = books.total_stock(good);
