@@ -9,6 +9,7 @@
 pub mod books;
 pub mod config;
 pub mod ids;
+pub mod invariants;
 pub mod money;
 pub mod numeric;
 pub mod rng;
