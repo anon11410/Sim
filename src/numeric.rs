@@ -64,11 +64,23 @@ pub const MILLI_SCALE: i64 = 1_000;
 ///
 /// The three-argument form exists so `bits` can be swept in a test. Callers on
 /// the behaviour path use [`pow_frac`], which fixes it at [`POW_FRAC_BITS`].
+/// # Panics
+///
+/// If `x` is not strictly positive, or `alpha` is not strictly between zero and
+/// one. Real `assert!`s, not debug-only ones: outside its domain this function
+/// returns a *value* rather than failing — `pow_frac(-1.0, 0.9)` is `NaN` and an
+/// out-of-range `alpha` gives `1.0` or a truncated result — and each of those
+/// then flows onward as though it were an answer. Two comparisons per call is
+/// not a cost worth trading a silent wrong number for.
 pub fn pow_frac_det(x: f64, alpha: f64, bits: u32) -> f64 {
-    debug_assert!(x > 0.0, "pow_frac_det is defined for a positive base only");
-    debug_assert!(
+    assert!(
+        x > 0.0,
+        "pow_frac_det is defined for a positive base only, but x = {x}"
+    );
+    assert!(
         alpha > 0.0 && alpha < 1.0,
-        "pow_frac_det is defined for a power strictly between zero and one"
+        "pow_frac_det is defined for a power strictly between zero and one, \
+         but alpha = {alpha}"
     );
 
     let mut accumulator = 1.0f64;
@@ -104,15 +116,30 @@ pub fn pow_frac(x: f64, alpha: f64) -> f64 {
 /// wrapping, so a magnitude beyond the integer range yields the nearest
 /// representable bound instead of a large value of the opposite sign — the
 /// failure mode a wrapping cast would produce from a large positive demand.
-/// Debug builds additionally assert that the input is finite, so a division
-/// that produced a non-finite value fails at the crossing rather than at some
-/// later use of the result.
 ///
 /// Note that this rounds only where the model needs a whole number of units.
 /// The demand field itself is written to the run record at full round-trip
 /// precision and is never truncated on the way out (D-13).
+///
+/// # Panics
+///
+/// If `x` is not finite. The check is **unconditional**, not a `debug_assert!`.
+/// Rust's saturating float-to-int cast maps `NaN` to `0`, and zero is the one
+/// wrong answer here that looks entirely reasonable: a firm that produces
+/// nothing is indistinguishable from a firm that chose to produce nothing. The
+/// doc above reasons carefully about saturation for large magnitudes, which
+/// produce obviously extreme values; NaN is the case that produces a *plausible*
+/// one. Confirmed in the release profile before this became unconditional:
+/// `pow_frac(-1.0, 0.9)` returned NaN and `demand_to_units(NaN)` returned 0,
+/// end to end, with no diagnostic anywhere.
+///
+/// It is one comparison per call and this is the only float/integer crossing in
+/// the crate.
 pub fn demand_to_units(x: f64) -> i64 {
-    debug_assert!(x.is_finite(), "a non-finite value reached the crossing");
+    assert!(
+        x.is_finite(),
+        "a non-finite value ({x}) reached the float/integer crossing"
+    );
     x.round() as i64
 }
 
@@ -224,6 +251,39 @@ mod tests {
         assert_eq!(demand_to_units(0.0), 0);
         assert_eq!(demand_to_units(1e30), i64::MAX);
         assert_eq!(demand_to_units(-1e30), i64::MIN);
+    }
+
+    // --- The domain guards, in EVERY profile (WR-06) ----------------------
+    //
+    // These were all `debug_assert!`, so in a release build the chain "config
+    // supplies a bad demand -> pow_frac returns NaN -> the crossing returns 0"
+    // ran end to end without a single diagnostic. Zero is the one wrong answer
+    // here that looks entirely reasonable.
+
+    #[test]
+    #[should_panic(expected = "non-finite")]
+    fn the_crossing_refuses_a_nan_rather_than_mapping_it_to_zero() {
+        // The saturating cast maps NaN to 0. That is the plausible wrong
+        // number; the large-magnitude cases above are the obvious ones.
+        let _ = demand_to_units(f64::NAN);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-finite")]
+    fn the_crossing_refuses_an_infinity() {
+        let _ = demand_to_units(f64::INFINITY);
+    }
+
+    #[test]
+    #[should_panic(expected = "positive base")]
+    fn a_non_positive_base_panics_rather_than_returning_nan() {
+        let _ = pow_frac(-1.0, 0.9);
+    }
+
+    #[test]
+    #[should_panic(expected = "strictly between zero and one")]
+    fn a_power_outside_the_unit_interval_panics_rather_than_returning_one() {
+        let _ = pow_frac(2.0, 1.0);
     }
 
     #[test]
