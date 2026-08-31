@@ -14,56 +14,151 @@
 # `config/PROVENANCE.md`. Editing a comment changes the config hash, which is
 # taken over this file's raw bytes — that is deliberate, because the comments
 # carry the source grades CORE-11 makes load-bearing.
+#
+# Each key below is preceded by exactly two comment lines: a human description,
+# then a machine-checkable line of the shape
+#   # GRADE: <A|B|C|PROJECT> | SOURCE: <where the value came from> | CADENCE: <day|month|period|none>
+# The four grade letters are defined in `.planning/research/SUMMARY.md:169` and
+# are reused here, not reinvented. `tests/provenance.rs` asserts every key has
+# one, that no annotation has drifted from its key, and that every key has a
+# matching row in `config/PROVENANCE.md`.
 
 [sim]
+# Run length in ticks. One tick is one day; 3650 is the brief's decade.
+# GRADE: PROJECT | SOURCE: PROJECT.md run length (10 simulated years x 365 days) | CADENCE: day
 ticks = 3650
+# The seed of record. `--seed` overrides it; the override is what is logged.
+# GRADE: PROJECT | SOURCE: project choice, arbitrary — any seed is as valid as any other | CADENCE: none
 seed = 42
+# Number of households.
+# GRADE: PROJECT | SOURCE: PROJECT.md sizing (200 households / 20 firms); graded table row "Single-owner firms" | CADENCE: none
 households = 200
+# Number of firm slots. Slots are respawned in place, never grown or shrunk.
+# GRADE: PROJECT | SOURCE: PROJECT.md sizing (200 households / 20 firms); graded table row "Single-owner firms" | CADENCE: none
 firms = 20
+# Days per accounting month — the cadence of every monthly decision.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO baseline model, month length, via annotated replication (UNVERIFIED) | CADENCE: none
 month_days = 21
 
 [money]
+# The fixed pile, in cents. Conserved to the cent for the whole run.
+# GRADE: PROJECT | SOURCE: project choice; free parameter, REQUIREMENTS.md CAL-02 defers its calibration to Phase 11 | CADENCE: none
 total_money_cents = 2000000 # CALIBRATED-IN: phase-11
 
 [household]
+# Consumption exponent alpha in `c = (m / P_bar)^alpha`; P_bar is the mean over
+# the household's own supplier list, not a global index. 0.9 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1 / Eq(11), via annotated replication (UNVERIFIED) | CADENCE: none
 consumption_exponent_ppm = 900000
+# Size n of the persistent preferred-supplier list.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: none
 supplier_list_size = 7
+# Price advantage zeta a rival must beat to displace a supplier. 0.01 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: none
 supplier_switch_threshold_ppm = 10000
+# Probability psi_price of a price-motivated supplier search. 0.25 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 price_search_prob_ppm = 250000
+# Probability psi_quant of a rationing-motivated supplier search. 0.25 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 rationing_search_prob_ppm = 250000
+# Firms a consumer samples when searching for a supplier (nbSellers).
+# GRADE: A | SOURCE: Caiani et al. jmab, `nbSellers` in the authors' own code (Lengnick instead uses the n=7 persistent list) | CADENCE: period
 firms_sampled_consumer = 5
+# Firms beta an unemployed job seeker samples.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 firms_sampled_unemployed = 5
+# Firms an employed job seeker samples.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO baseline model, via annotated replication (UNVERIFIED) | CADENCE: month
 firms_sampled_employed = 1
+# Probability pi an employed household searches anyway. 0.1 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 employed_search_prob_ppm = 100000
+# Monthly decay applied to an unemployed reservation wage: x0.9, in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO baseline model, via annotated replication (UNVERIFIED) | CADENCE: month
 reservation_wage_decay_ppm = 900000
+# Floor under the decaying reservation wage, in cents.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 reservation_wage_floor_cents = 1000 # CALIBRATED-IN: phase-11
+# Household cash at t=0, in cents.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 initial_liquidity_cents = 5000 # CALIBRATED-IN: phase-11
+# Household reservation wage at t=0, in cents.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 initial_reservation_wage_cents = 6300 # CALIBRATED-IN: phase-11
 
 [firm]
+# Productivity lambda_prod: goods produced per worker per day.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: day
 productivity_units_per_worker_day = 3
+# Demand-expectation smoothing lambda in `E += lambda(obs - E)`. 0.25 in ppm.
+# GRADE: A | SOURCE: Caiani et al. jmab, SimpleAdaptiveExpectation `adaptiveParam` in the authors' own code | CADENCE: period
 demand_smoothing_ppm = 250000
+# Price adjustment bound upsilon in `x(1 +/- U(0, upsilon))`. 0.02 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 price_step_bound_ppm = 20000
+# Price-change probability theta = 0.75, in ppm. See PROVENANCE.md V-4: the
+# graded table reads theta as P(firm CONSIDERS a change) while this key names
+# the complementary event; the reading is an open item for the Phase 6 gate.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1 theta, via annotated replication (UNVERIFIED; sense flagged, see PROVENANCE.md V-4) | CADENCE: month
 price_inaction_prob_ppm = 750000
+# Inventory floor phi_l as a fraction of expected demand. 0.25 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 inventory_floor_ppm = 250000
+# Inventory ceiling phi_u as a fraction of expected demand. 1.0 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 inventory_ceiling_ppm = 1000000
+# Price floor vartheta_l as a multiple of marginal cost. 1.025 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: none
 price_floor_over_mc_ppm = 1025000
+# Price ceiling vartheta_u as a multiple of marginal cost. 1.15 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: none
 price_ceiling_over_mc_ppm = 1150000
+# Wage adjustment bound delta (ceil up, floor down). 0.019 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 wage_step_bound_ppm = 19000
+# Consecutive fully-staffed cycles gamma before a wage cut.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 full_staff_cycles_before_wage_cut = 24
+# Cash buffer chi retained against payroll before a dividend. 0.1 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO Table 1, via annotated replication (UNVERIFIED) | CADENCE: month
 dividend_buffer_ppm = 100000
+# Fraction of demand a firm plans to satisfy. 0.95 in ppm.
+# GRADE: B | SOURCE: Lengnick 2013 JEBO baseline model, via annotated replication (UNVERIFIED) | CADENCE: day
 demand_satisfaction_ppm = 950000
+# Floor under the offered wage, in cents.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 wage_floor_cents = 1000 # CALIBRATED-IN: phase-11
+# Firm price at t=0, in cents.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 initial_price_cents = 105 # CALIBRATED-IN: phase-11
+# Firm offered wage at t=0, in cents.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 initial_wage_cents = 6300 # CALIBRATED-IN: phase-11
+# Firm inventory at t=0, in units.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 initial_inventory_units = 165 # CALIBRATED-IN: phase-11
+# Firm demand expectation at t=0. The one float in the configuration; CAL-01
+# requires it strictly positive. Its cadence is unpinned — see PROVENANCE.md V-5.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 initial_expected_demand = 330.0 # CALIBRATED-IN: phase-11
+# Firm cash at t=0, in cents.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; REQUIREMENTS.md CAL-01 defers its calibration to Phase 11 | CADENCE: none
 initial_liquidity_cents = 50000 # CALIBRATED-IN: phase-11
 
 [bankruptcy]
+# Entrant size against the trimmed mean of incumbents: 0.8x, in ppm.
+# GRADE: B | SOURCE: BAM `size-replacing-firms` = 0.2, via annotated replication (UNVERIFIED) | CADENCE: none
 entrant_size_ratio_ppm = 800000
+# Entrant price against the market average: 1.26x, in ppm.
+# GRADE: B | SOURCE: BAM `replace-bankrupt`, via annotated replication (UNVERIFIED) | CADENCE: none
 entrant_price_ratio_ppm = 1260000
+# Incumbents trimmed from each tail before taking that mean. BAM specifies 5%
+# tails; at 20 firms that is exactly 1 firm per tail.
+# GRADE: C | SOURCE: derived arithmetic — 5% of 20 firms = 1, from BAM submodel 41 (itself grade B, UNVERIFIED) | CADENCE: none
 incumbent_trim_per_tail = 1
 
 [ownership]
+# Firms held by an owning household. 20 of 200 households hold one each.
+# GRADE: PROJECT | SOURCE: project choice, no published precedent; graded table row "Single-owner firms" | CADENCE: none
 firms_per_owner = 1
