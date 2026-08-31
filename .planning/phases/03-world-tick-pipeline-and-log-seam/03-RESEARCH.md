@@ -1149,6 +1149,13 @@ must survive untouched.
 
 `[VERIFIED: ran the full suite against the Phase 3 tree — 244 tests, all green except these two]`
 
+> **Count correction (2026-08-31, plan 03-01).** The 244 above is this prototype tree's count —
+> it already carried the world and pipeline modules and their tests. The **repository's**
+> pre-phase count is **242**, measured before and after plan 03-01, which changed only
+> `Cargo.toml` and `Cargo.lock`. Plan 03-01's task 2 copied 244 into a `fails_when` and it has
+> been corrected there. Later plans must expect 242 plus whatever they add, not 244 — a reader
+> starting from 244 would go looking for two deleted tests that never existed here.
+
 ---
 
 ### Pitfall 12: A five-part config agreement, if any config leaf is touched
