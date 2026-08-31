@@ -1306,6 +1306,363 @@ impl Books {
     }
 }
 
+/// The fault-injection vocabulary: four ways to break these books on purpose.
+///
+/// **Gated on the crate's own test configuration, and visible to the crate
+/// only.** Verified on this toolchain in both directions: a method declared
+/// this way is callable from a unit test inside this crate — private fields
+/// included — and is a hard compile error from an integration test under
+/// `tests/`, which reaches this crate exactly as any other consumer does. So no
+/// consumer of `sim`, this crate's own integration tests included, can reach
+/// anything below, and that boundary is enforced by the compiler rather than by
+/// a review, a naming convention or a grep. Plan 02-06 turns the fact into an
+/// executed probe rather than leaving it a claim.
+///
+/// **A cargo feature was considered here and rejected.** Its one advantage is
+/// reachability from the integration tests, and it costs a features entry, a
+/// second continuous-integration invocation and a standing assertion that the
+/// feature stayed out of the default set — that is, a production hole that must
+/// be proved shut on every run, bought in exchange for reaching a boundary the
+/// unit tests already sit inside. The configuration gate has the same power and
+/// leaves no hole to prove shut. There is therefore no feature, no runtime flag
+/// and no builder switch anywhere in this file.
+///
+/// **Every method here writes state the public API cannot reach**, and three of
+/// the four leave the books in a condition an invariant exists to reject. They
+/// are what turn each check in `src/invariants.rs` from configured into
+/// observed to fire: a check never seen to fire has never been shown to work.
+///
+/// The two that record a posting route it through [`Books::record`], the same
+/// private recorder every real posting uses. That is deliberate and it is the
+/// point: the residual arithmetic a negative test exercises is the production
+/// arithmetic, and no test can hand-fake a residual.
+#[cfg(test)]
+impl Books {
+    /// Move `cents` from `debit` to `credit`, credit `delta_cents` more than
+    /// was debited, and record the posting that says so. Returns the posting as
+    /// the recorder stamped it.
+    ///
+    /// **The realistic shape of a leak:** a posting whose two cash legs
+    /// disagree, so the balances and the journal residual move together and by
+    /// the same amount. A negative `delta_cents` is the dropped cent; a
+    /// positive one is the over-credited posting; and applying it twice with
+    /// equal and opposite arguments returns the running residual to zero, which
+    /// is what the localisation test needs in order to reproduce a residual
+    /// that cancels.
+    ///
+    /// The recorded posting is malformed for its kind as well as
+    /// non-conserving, so the zero-sum check fires on the same books. That is a
+    /// property of the corruption and not an accident: one fault tripping two
+    /// checks is what makes the order of the check table observable.
+    ///
+    /// Panics if either address names no account in these books, or if the two
+    /// name the same one — a single account written twice would lose the first
+    /// write and silently seed a different fault than the one asked for.
+    pub(crate) fn corrupt_recorded_cash(
+        &mut self,
+        debit: Account,
+        credit: Account,
+        cents: i64,
+        delta_cents: i64,
+    ) -> Posting {
+        assert_ne!(
+            debit, credit,
+            "a corruption naming one account on both legs would write that \
+             account twice and lose the first write"
+        );
+        let debit_slot = self
+            .resolve(debit)
+            .expect("a corruption names an account these books hold");
+        let credit_slot = self
+            .resolve(credit)
+            .expect("a corruption names an account these books hold");
+
+        let paid = self.cash_at(debit_slot).cents() - cents;
+        let received = self.cash_at(credit_slot).cents() + cents + delta_cents;
+        self.write_cash(debit_slot, Money::from_cents(paid));
+        self.write_cash(credit_slot, Money::from_cents(received));
+
+        self.record(Posting {
+            seq: 0,
+            kind: PostingKind::Transfer,
+            debit,
+            credit,
+            debit_cents: cents,
+            credit_cents: cents + delta_cents,
+            good: ONLY_GOOD,
+            units_out: 0,
+            units_in: 0,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+
+        *self
+            .journal
+            .last()
+            .expect("the recorder pushed the posting it was just handed")
+    }
+
+    /// Adjust `who`'s cash by `delta_cents` and record **nothing**.
+    ///
+    /// The case the journal genuinely cannot localise. Every posting in the
+    /// tick conserves, so every running residual is zero and there is no
+    /// offending posting to name. It exists so that the optional posting on a
+    /// conservation violation is exercised rather than theoretical, and so the
+    /// message that says the books were changed outside the posting path is
+    /// read by a test rather than only written by a developer.
+    ///
+    /// Panics if `who` names no account in these books.
+    pub(crate) fn corrupt_silent_cash(&mut self, who: Account, delta_cents: i64) {
+        let slot = self
+            .resolve(who)
+            .expect("a corruption names an account these books hold");
+        let adjusted = self.cash_at(slot).cents() + delta_cents;
+        self.write_cash(slot, Money::from_cents(adjusted));
+    }
+
+    /// Move `cents` from `from` to `to` by direct field writes, with no
+    /// overdraft check and no posting.
+    ///
+    /// **The total stays exactly intact and one account ends below zero.** This
+    /// is the corruption that proves money conservation and non-negativity are
+    /// independent checks rather than two names for one condition: the books
+    /// hold the opening stock to the cent, so only the second of the two can
+    /// fire.
+    ///
+    /// Panics if either address names no account in these books, or if the two
+    /// name the same one, for the reason [`Books::corrupt_recorded_cash`] gives.
+    pub(crate) fn corrupt_conserving_deficit(&mut self, from: Account, to: Account, cents: i64) {
+        assert_ne!(
+            from, to,
+            "a corruption naming one account on both legs would write that \
+             account twice and lose the first write"
+        );
+        let from_slot = self
+            .resolve(from)
+            .expect("a corruption names an account these books hold");
+        let to_slot = self
+            .resolve(to)
+            .expect("a corruption names an account these books hold");
+
+        let drained = self.cash_at(from_slot).cents() - cents;
+        let filled = self.cash_at(to_slot).cents() + cents;
+        self.write_cash(from_slot, Money::from_cents(drained));
+        self.write_cash(to_slot, Money::from_cents(filled));
+    }
+
+    /// Append `draft` to the journal without touching any balance, stamping its
+    /// sequence number and both running residuals through the recorder.
+    /// Returns the posting as it was stamped.
+    ///
+    /// This is what lets a test synthesise a malformed posting for the zero-sum
+    /// check. No public operation can record one — that is the point of the
+    /// rest of this file — and it is why the structural check is testable in a
+    /// phase with no economic notion of a sale.
+    ///
+    /// The `seq` and both residual fields on `draft` are placeholders and are
+    /// overwritten, exactly as they are for a posting a real operation records.
+    pub(crate) fn corrupt_appended_posting(&mut self, draft: Posting) -> Posting {
+        self.record(draft);
+        *self
+            .journal
+            .last()
+            .expect("the recorder pushed the posting it was just handed")
+    }
+}
+
+/// The corruption vocabulary itself, in isolation from any invariant.
+///
+/// Named `corrupt` so that a `books::corrupt` module-path filter selects
+/// exactly these.
+///
+/// **These are not the negative tests.** Those live in `src/invariants.rs` and
+/// assert which violation a seeded fault produces. These assert that each
+/// corruption had the effect its documentation claims — the balances moved by
+/// the stated amount, the journal grew by the stated number of postings, and
+/// the running residual moved by the stated amount — which is what stops a
+/// broken corruption from producing a green negative test for the wrong reason.
+#[cfg(test)]
+mod corrupt {
+    use super::*;
+    use std::path::Path;
+
+    /// The one good v1 carries.
+    const FOOD: GoodId = GoodId(0);
+
+    /// The shipped parameters, loaded through the real deserialisation path so
+    /// these tests cannot drift from the configuration the binary runs on.
+    fn shipped() -> Params {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
+        let (params, _hash) = crate::config::load(&path).expect("the shipped configuration loads");
+        params
+    }
+
+    fn books() -> Books {
+        Books::new(&shipped()).expect("the shipped endowment sums to the stock")
+    }
+
+    fn household(index: u32) -> Account {
+        Account::Household(HouseholdId(index))
+    }
+
+    fn firm(slot: u16) -> Account {
+        Account::Firm(FirmId {
+            slot: FirmSlot(slot),
+            generation: 0,
+        })
+    }
+
+    fn cash(books: &Books, account: Account) -> i64 {
+        books
+            .cash_of(account)
+            .expect("the account is one these books hold")
+            .cents()
+    }
+
+    #[test]
+    fn a_recorded_corruption_moves_the_balances_the_journal_and_the_residual_together() {
+        let mut books = books();
+        let opening_total = books.total_money().cents();
+        let payer = cash(&books, firm(0));
+        let payee = cash(&books, household(0));
+        assert_eq!(books.cash_residual_cents(), 0, "the books open conserving");
+
+        let posting = books.corrupt_recorded_cash(firm(0), household(0), 100, -1);
+
+        // The balances moved by the stated amounts: a hundred cents left the
+        // payer and ninety-nine arrived, so the total is one cent short.
+        assert_eq!(cash(&books, firm(0)), payer - 100);
+        assert_eq!(cash(&books, household(0)), payee + 99);
+        assert_eq!(books.total_money().cents(), opening_total - 1);
+
+        // The journal grew by exactly one posting, and it is the one returned.
+        assert_eq!(books.journal().len(), 1);
+        assert_eq!(books.journal().first().copied(), Some(posting));
+
+        // The recorder stamped it, so the residual under test is the production
+        // residual rather than a number this method wrote.
+        assert_eq!(posting.seq, 0);
+        assert_eq!(posting.debit_cents, 100);
+        assert_eq!(posting.credit_cents, 99);
+        assert_eq!(posting.cash_residual_cents, -1);
+        assert_eq!(books.cash_residual_cents(), -1);
+
+        // A cash corruption moves no units.
+        assert_eq!(books.goods_residual_units(), 0);
+        assert_eq!(posting.goods_residual_units, 0);
+    }
+
+    #[test]
+    fn two_equal_and_opposite_recorded_corruptions_heal_the_residual() {
+        // The property the localisation test rests on: a residual that returns
+        // to zero part way through a tick, which is what makes a halving search
+        // over the journal unsound.
+        let mut books = books();
+        let opening_total = books.total_money().cents();
+
+        let broke = books.corrupt_recorded_cash(firm(0), household(0), 100, 1);
+        assert_eq!(broke.cash_residual_cents, 1);
+        assert_eq!(books.cash_residual_cents(), 1);
+        assert_eq!(books.total_money().cents(), opening_total + 1);
+
+        let healed = books.corrupt_recorded_cash(firm(0), household(0), 100, -1);
+        assert_eq!(healed.cash_residual_cents, 0);
+        assert_eq!(books.cash_residual_cents(), 0);
+        assert_eq!(books.total_money().cents(), opening_total);
+
+        assert_eq!(
+            books.journal().len(),
+            2,
+            "both postings survive the healing"
+        );
+        assert_eq!(healed.seq, 1);
+    }
+
+    #[test]
+    fn a_silent_corruption_moves_a_balance_and_records_nothing() {
+        let mut books = books();
+        let opening_total = books.total_money().cents();
+        let before = cash(&books, household(0));
+
+        books.corrupt_silent_cash(household(0), -1);
+
+        assert_eq!(cash(&books, household(0)), before - 1);
+        assert_eq!(books.total_money().cents(), opening_total - 1);
+
+        // The whole point of this corruption: nothing in the journal describes
+        // it, so no posting can be named for it.
+        assert!(books.journal().is_empty());
+        assert_eq!(books.cash_residual_cents(), 0);
+        assert_eq!(books.transactions_this_tick(), 0);
+    }
+
+    #[test]
+    fn a_conserving_deficit_drives_one_account_below_zero_and_leaves_the_total_intact() {
+        let mut books = books();
+        let opening_total = books.total_money().cents();
+        let opening = cash(&books, household(0));
+        let taker = cash(&books, firm(0));
+
+        books.corrupt_conserving_deficit(household(0), firm(0), opening + 250);
+
+        assert_eq!(
+            cash(&books, household(0)),
+            -250,
+            "no overdraft check applied"
+        );
+        assert_eq!(cash(&books, firm(0)), taker + opening + 250);
+        assert_eq!(
+            books.total_money().cents(),
+            opening_total,
+            "the total is intact, which is what makes this corruption a test of \
+             non-negativity and not of conservation"
+        );
+        assert!(books.journal().is_empty());
+        assert_eq!(books.cash_residual_cents(), 0);
+    }
+
+    #[test]
+    fn an_appended_posting_touches_no_balance_and_is_stamped_by_the_recorder() {
+        let mut books = books();
+        let opening_total = books.total_money().cents();
+        let opening_stock = books.total_stock(FOOD);
+
+        // Placeholder values on the three fields the recorder owns, so the test
+        // can tell a stamped posting from the draft it was handed.
+        let draft = Posting {
+            seq: 99,
+            kind: PostingKind::Transfer,
+            debit: household(0),
+            credit: firm(0),
+            debit_cents: 500,
+            credit_cents: 500,
+            good: FOOD,
+            units_out: 3,
+            units_in: 3,
+            cash_residual_cents: 77,
+            goods_residual_units: 88,
+        };
+        let posting = books.corrupt_appended_posting(draft);
+
+        assert_eq!(posting.seq, 0, "the recorder stamps the sequence number");
+        assert_eq!(posting.cash_residual_cents, 0, "the cash legs agree");
+        assert_eq!(posting.goods_residual_units, 0, "the unit legs agree");
+        assert_eq!(books.journal().len(), 1);
+        assert_eq!(books.journal().first().copied(), Some(posting));
+
+        // No balance moved: this corruption is a journal-only fault, which is
+        // what makes it a test of the structural check alone.
+        assert_eq!(books.total_money().cents(), opening_total);
+        assert_eq!(books.total_stock(FOOD), opening_stock);
+        assert_eq!(books.cash_residual_cents(), 0);
+        assert_eq!(books.goods_residual_units(), 0);
+
+        // A transfer counts towards the liveness minimum however malformed it
+        // is; that is the recorder's rule and this corruption does not bypass it.
+        assert_eq!(books.transactions_this_tick(), 1);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
