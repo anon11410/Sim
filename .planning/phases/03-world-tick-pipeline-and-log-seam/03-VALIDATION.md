@@ -134,7 +134,11 @@ Phase 4's conservation replay needs: 220 rows summing to exactly 2,000,000 cents
 - [ ] `schema/schema.json` — generated and committed
 - [ ] `tests/determinism.rs`, `tests/log_schema.rs`, `tests/golden/` (50-tick run)
 - [ ] `tests/lints.sh` — guard `7f-agents`, guard 7h file-set extension, **and the check-count
-      prose in the script's own summary line**, which currently says "ten source guards"
+      prose at all FOUR sites that currently say "ten source guards"**: the preamble comment
+      (line 28), the check-7 section header (line 377, capitalised `Ten`), the check-7 summary
+      line (783) and the final `OK:` line (785). Three are lowercase and one is not, so the
+      case-sensitive greps in plan 03-02 must be paired with case-insensitive siblings — expected
+      counts after the edit are `3` lowercase and `4` case-insensitive, not `2`
 - [ ] `tests/tracer_end_to_end.rs` — **port `runs_end_to_end` and `different_seed_changes_the_draw`**;
       the research measured that rewriting `main.rs` silently drops these two tests. Keep the
       overflow tests.
