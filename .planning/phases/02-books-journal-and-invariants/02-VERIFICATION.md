@@ -1,13 +1,16 @@
 ---
 phase: 02-books-journal-and-invariants
 verified: 2026-08-31T11:38:04Z
-status: gaps_found
-score: 3/4 must-haves verified
+status: passed
+score: 4/4 must-haves verified
+# was gaps_found 3/4; the single gap was closed by e0ee1b4 and re-verified independently — see Gap Closure below
 behavior_unverified: 0
 overrides_applied: 0
 gaps:
   - truth: "The negative test passes for every check: an invariant never observed to fire has never been shown to work"
-    status: partial
+    status: resolved
+    resolved_by: e0ee1b4
+    resolved_at: 2026-08-31
     reason: >-
       Four of the five checks are mutation-proven to fire on a seeded fault. The fifth —
       `check_goods` (goods conservation, LEDG-05) — has never been observed to return `Err`.
@@ -610,3 +613,54 @@ _Verified: 2026-08-31T11:38:04Z_
 _Verifier: Claude (gsd-verifier)_
 _Mutation testing performed in an isolated `git archive HEAD` copy under the session scratchpad;
 the working tree was confirmed clean (`git status --porcelain` empty) before and after._
+
+---
+
+## Gap Closure (2026-08-31, commit `e0ee1b4`)
+
+The single blocking gap — `check_goods` never observed to fire — is closed.
+
+**What was added.** A fifth `#[cfg(test)] pub(crate)` corruption on `Books`,
+`corrupt_silent_stock`, being the goods analogue of `corrupt_silent_cash`. It was needed
+because none of the four existing corruptions could reach the check's *balance-derived* arm
+without also moving the journal arm, and a corruption that moves both cannot tell the two
+apart. Two negative tests in `invariants::goods`, one per arm, each asserting the whole
+`Violation` value — variant, tick, `produced`/`consumed`/`stock`, both residuals, and the
+localised posting — with money-conservation, non-negativity and zero-sum asserted `Ok(())` on
+the same books as controls.
+
+**Mutation evidence, per arm.** The per-arm results are the stronger claim: neither arm can be
+neutered alone without a red test, so this is not one test covering the function twice.
+
+| Mutation in `check_goods` | Result |
+|---|---|
+| `if true { return Ok(()); }` | 2 failed, 164 passed — both new tests |
+| `let journal_residual_units = 0;` | 1 failed — only the exchange test |
+| `let delta_units = 0;` | 1 failed — only the conjured-units test |
+
+**Independently re-verified by the orchestrator**, not accepted on report. The first mutation
+was re-applied to a clean `git archive HEAD` copy outside the working tree:
+
+```
+failures:
+    invariants::goods::an_exchange_whose_unit_legs_disagree_is_a_goods_leak_and_is_localised
+    invariants::goods::units_conjured_outside_the_posting_path_break_the_identity_and_name_no_posting
+test result: FAILED. 164 passed; 2 failed
+```
+
+Before the closure the identical mutation left all 239 tests green. The working tree was not
+modified and the isolated copy was deleted afterwards.
+
+**A regression the suite could not see.** `tests/lints.sh` guard 7j failed on the first
+attempt — the E0599 compile-fail probe pins its call count to the corruption-method
+declaration count, and a fifth method no probe line named could later escape the
+`#[cfg(test)]` gate with check 6 still printing success. Fixed by adding the call to
+`tests/lint-probes/books_cfg_test_probe.rs.txt`. Invisible to `cargo test`; caught only by the
+lint wall.
+
+**Ledger.** `.planning/WINDOWS.md` entry 23 records the omission — plan 02-05 scoped exactly
+four violation classes, so the "every check" self-audit never ran. Entry 24 records the closure
+and the two obligations it creates: guard 7j's probe-count contract for any sixth corruption
+method, and Phase 5's rewrite of the four per-good accessors, which these two tests now guard.
+
+Suite at closure: 242 tests, green in both profiles, clippy and fmt clean, no dependency change.
