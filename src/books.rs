@@ -1395,6 +1395,22 @@ impl Books {
             .saturating_add(draft.units_out)
             .saturating_sub(draft.units_in);
 
+        // **Saturating, where `produce` and `consume` use bare arithmetic that
+        // aborts (T-02-17).** The difference is deliberate and the rule is
+        // which side of the line the quantity sits on. A unit count and a
+        // balance are quantities the model claims exist, so one that cannot be
+        // represented is a fault and must stop the run before any write. These
+        // two residuals are DIAGNOSTIC quantities — they are what `check_money`
+        // and `check_goods` report a broken invariant WITH — and a report of a
+        // broken invariant must not itself be the thing that fails, which is the
+        // same sentence `check_money` carries at its own `delta_cents`.
+        //
+        // A saturated residual is therefore a wrong number that the check will
+        // report and `first_breaking_cash_posting` will scan against. That is
+        // accepted here and closed at the boundary instead: `Books::new` proves
+        // the endowment representable with checked arithmetic before the first
+        // posting, and every later posting's legs are amounts that already fit
+        // in a balance.
         self.cash_residual_cents = self.cash_residual_cents.saturating_add(cash_delta);
         self.goods_residual_units = self.goods_residual_units.saturating_add(goods_delta);
 
