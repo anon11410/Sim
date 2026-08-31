@@ -1914,3 +1914,849 @@ mod zero_sum {
         assert!(rendered.contains("101"), "{rendered}");
     }
 }
+
+/// The phase gate: every violation class observed to fire on a deliberately
+/// seeded fault (LEDG-04, LEDG-06, LEDG-07, LEDG-09, LEDG-10).
+///
+/// Named `negative` so an `invariants::negative` module-path filter selects
+/// exactly these.
+///
+/// **An invariant never observed to fire has never been shown to work.** The
+/// other modules in this file prove the checks pass on healthy books and
+/// discriminate between shapes; these prove each one actually bites, on books
+/// broken on purpose.
+///
+/// Every fault is seeded through the corruption vocabulary in `src/books.rs`,
+/// which routes each recorded posting through the same private recorder a real
+/// posting uses. So a seeded fault travels the code path a real one would, and
+/// what these tests prove is the production path rather than a test-only one.
+///
+/// Every violation is asserted by **whole-value equality**, including the tick,
+/// the numbers and the posting. Not one assertion below matches a substring of
+/// a rendered message, with a single documented exception: the silent
+/// corruption also reads its message, because the honest phrasing when no
+/// posting accounts for the discrepancy is the entire reason that field is
+/// optional rather than a placeholder. A substring assertion passes when the
+/// wrong check fired, when the tick is wrong and when the posting named is the
+/// wrong one — which is exactly how a negative test comes to pass for the wrong
+/// reason.
+#[cfg(test)]
+mod negative {
+    use super::*;
+    use std::path::Path;
+
+    use crate::ids::{FirmId, FirmSlot, HouseholdId};
+    use crate::money::Money;
+
+    /// The one good v1 carries.
+    const FOOD: GoodId = GoodId(0);
+
+    /// How many ticks the halt loop attempts.
+    const TICKS: u32 = 10;
+
+    /// The tick on which the halt loop seeds its leak.
+    const CORRUPTED_TICK: u32 = 3;
+
+    fn shipped_with_liveness(enabled: bool) -> Params {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
+        let (mut params, _hash) = crate::config::load(&path).expect("the configuration loads");
+        params.invariants.liveness_enabled = enabled;
+        params
+    }
+
+    fn household(index: u32) -> Account {
+        Account::Household(HouseholdId(index))
+    }
+
+    fn firm(slot: u16) -> Account {
+        Account::Firm(FirmId {
+            slot: FirmSlot(slot),
+            generation: 0,
+        })
+    }
+
+    /// The check the tick loop runs, taken from [`ALL_CHECKS`] by identifier.
+    ///
+    /// Every test below therefore drives the function the production check set
+    /// dispatches to, rather than calling a private function that happens to
+    /// share its name. A check removed from the table would fail here rather
+    /// than keep passing in isolation.
+    fn check_for(id: CheckId) -> CheckFn {
+        let (_, _, check) = ALL_CHECKS
+            .iter()
+            .copied()
+            .find(|(entry, _, _)| *entry == id)
+            .expect("every identifier has a table entry");
+        check
+    }
+
+    /// The books and the configured stock they must hold, with the liveness
+    /// gate off so that a tick which has traded nothing is not also a violation.
+    fn opened() -> (Books, i64) {
+        let params = shipped_with_liveness(false);
+        let books = Books::new(&params).expect("the shipped endowment sums to the stock");
+        (books, params.money.total_money_cents)
+    }
+
+    #[test]
+    fn a_dropped_cent_recorded_as_a_posting_is_reported_as_a_leak_and_localised() {
+        // LEDG-04. A hundred cents leave the firm and ninety-nine arrive: the
+        // books are one cent short and the journal says which posting lost it.
+        let (mut books, stock) = opened();
+        let posting = books.corrupt_recorded_cash(firm(0), household(0), 100, -1);
+
+        assert_eq!(
+            check_for(CheckId::MoneyConservation)(&books, 3),
+            Err(Violation::MoneyConservation {
+                tick: 3,
+                expected_cents: stock,
+                actual_cents: stock - 1,
+                delta_cents: -1,
+                journal_residual_cents: -1,
+                posting: Some(Box::new(posting)),
+            })
+        );
+    }
+
+    #[test]
+    fn a_drop_written_outside_the_posting_path_names_no_posting_and_says_so() {
+        // LEDG-09's honest case. The same missing cent, written where no
+        // posting describes it: every running residual is zero and there is
+        // genuinely nothing to name.
+        let (mut books, stock) = opened();
+        books.corrupt_silent_cash(household(0), -1);
+
+        let outcome = check_for(CheckId::MoneyConservation)(&books, 4);
+        assert_eq!(
+            outcome,
+            Err(Violation::MoneyConservation {
+                tick: 4,
+                expected_cents: stock,
+                actual_cents: stock - 1,
+                delta_cents: -1,
+                journal_residual_cents: 0,
+                posting: None,
+            })
+        );
+
+        // The one message assertion in this module, and it earns its place: a
+        // synthetic posting in a halt message is a lie a future reader chases,
+        // so the message has to say what actually happened.
+        let rendered = outcome.expect_err("the cent is gone").to_string();
+        assert!(rendered.contains("no offending posting"), "{rendered}");
+        assert!(rendered.contains("outside the posting path"), "{rendered}");
+    }
+
+    #[test]
+    fn an_over_credited_posting_is_a_leak_and_the_same_books_also_break_zero_sum() {
+        // LEDG-04 and LEDG-07 on one corruption, which is the ordering contract
+        // made concrete: one fault trips two checks and the table's order is
+        // what decides which of them a caller sees.
+        let (mut books, stock) = opened();
+        let posting = books.corrupt_recorded_cash(firm(0), household(0), 100, 5);
+
+        let leak = Violation::MoneyConservation {
+            tick: 7,
+            expected_cents: stock,
+            actual_cents: stock + 5,
+            delta_cents: 5,
+            journal_residual_cents: 5,
+            posting: Some(Box::new(posting)),
+        };
+        assert_eq!(
+            check_for(CheckId::MoneyConservation)(&books, 7),
+            Err(leak.clone())
+        );
+
+        // The structural check fires on the identical books, because a posting
+        // whose cash legs disagree is malformed as well as non-conserving.
+        assert_eq!(
+            check_for(CheckId::ZeroSum)(&books, 7),
+            Err(Violation::ZeroSum {
+                tick: 7,
+                posting: Box::new(posting),
+                detail: ZeroSumDetail::CashLegsDiffer {
+                    debit_cents: 100,
+                    credit_cents: 105,
+                },
+            })
+        );
+
+        // And the set reports the leak, because money conservation is first.
+        // Reporting this as "a posting is malformed" would send a debugger to
+        // the shape of the posting rather than to the missing money.
+        let checks = CheckSet::from_params(&shipped_with_liveness(false));
+        assert_eq!(checks.run(&books, 7), Err(leak));
+    }
+
+    #[test]
+    fn a_conserving_move_that_drives_an_account_negative_is_not_a_conservation_failure() {
+        // LEDG-06, and the single most valuable assertion in this module: the
+        // total is intact to the cent, so conservation passes and only
+        // non-negativity can fire. The two checks are independent rather than
+        // two names for one condition.
+        let (mut books, stock) = opened();
+        let opening = books
+            .cash_of(household(0))
+            .expect("the household is one these books hold")
+            .cents();
+        books.corrupt_conserving_deficit(household(0), firm(0), opening + 250);
+
+        assert_eq!(
+            books.total_money().cents(),
+            stock,
+            "the deficit was moved, not created"
+        );
+        assert_eq!(check_for(CheckId::MoneyConservation)(&books, 9), Ok(()));
+        assert_eq!(check_for(CheckId::GoodsConservation)(&books, 9), Ok(()));
+
+        assert_eq!(
+            check_for(CheckId::NonNegative)(&books, 9),
+            Err(Violation::Negative {
+                tick: 9,
+                account: household(0),
+                field: NegativeField::Cash,
+                value: -250,
+                posting: None,
+            })
+        );
+    }
+
+    #[test]
+    fn a_synthesised_posting_breaks_only_the_structural_check() {
+        // LEDG-07 in the direction no public operation can reach. The
+        // corruption touches no balance and its unit legs are equal, so both
+        // conservation identities still hold and only the structural check can
+        // fire.
+        let (mut books, stock) = opened();
+        let posting = books.corrupt_appended_posting(Posting {
+            seq: 0,
+            kind: PostingKind::Transfer,
+            debit: household(0),
+            credit: firm(0),
+            debit_cents: 500,
+            credit_cents: 500,
+            good: FOOD,
+            units_out: 3,
+            units_in: 3,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+
+        assert_eq!(books.total_money().cents(), stock, "no balance moved");
+        assert_eq!(check_for(CheckId::MoneyConservation)(&books, 11), Ok(()));
+        assert_eq!(check_for(CheckId::GoodsConservation)(&books, 11), Ok(()));
+        assert_eq!(check_for(CheckId::NonNegative)(&books, 11), Ok(()));
+
+        assert_eq!(
+            check_for(CheckId::ZeroSum)(&books, 11),
+            Err(Violation::ZeroSum {
+                tick: 11,
+                posting: Box::new(posting),
+                detail: ZeroSumDetail::UnitsOnACashOnlyPosting {
+                    units_out: 3,
+                    units_in: 3,
+                },
+            })
+        );
+    }
+
+    /// Drive a tick loop that transfers a cent every tick, optionally seeding
+    /// the recorded dropped-cent corruption during [`CORRUPTED_TICK`], running
+    /// the check set and closing the tick each time.
+    ///
+    /// Records the last tick whose body **began** in `reached`, because "it
+    /// returned an error" and "it stopped" are two different claims and
+    /// ROADMAP criterion 2 needs both.
+    fn run_loop(seed_the_leak: bool, reached: &mut Option<u32>) -> Result<(), Violation> {
+        let params = shipped_with_liveness(false);
+        let mut books = Books::new(&params).expect("the shipped endowment sums to the stock");
+        let checks = CheckSet::from_params(&params);
+
+        for tick in 0..TICKS {
+            *reached = Some(tick);
+
+            books
+                .transfer(household(0), firm(0), Money::from_cents(1))
+                .expect("an endowed household can pay a cent");
+
+            if seed_the_leak && tick == CORRUPTED_TICK {
+                books.corrupt_recorded_cash(firm(0), household(0), 100, -1);
+            }
+
+            checks.run(&books, tick)?;
+            books.end_of_tick();
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn a_seeded_leak_aborts_the_tick_loop_at_the_tick_it_occurred() {
+        // LEDG-10 at the library level, for a violation class the public API
+        // cannot reach. `tests/invariant_halt.rs` proves the same halt through
+        // the liveness violation, which needs no fault injection; between them
+        // the two cover every class.
+        let stock = shipped_with_liveness(false).money.total_money_cents;
+        let mut reached = None;
+        let outcome = run_loop(true, &mut reached);
+
+        // The posting the corruption recorded, spelled out rather than captured
+        // out of the loop: sequence one, because the tick's own transfer took
+        // sequence zero, and a running cash residual of minus one, because the
+        // residual is cumulative and the three clean ticks before it left it at
+        // zero.
+        let expected = Posting {
+            seq: 1,
+            kind: PostingKind::Transfer,
+            debit: firm(0),
+            credit: household(0),
+            debit_cents: 100,
+            credit_cents: 99,
+            good: FOOD,
+            units_out: 0,
+            units_in: 0,
+            cash_residual_cents: -1,
+            goods_residual_units: 0,
+        };
+
+        assert_eq!(
+            outcome,
+            Err(Violation::MoneyConservation {
+                tick: CORRUPTED_TICK,
+                expected_cents: stock,
+                actual_cents: stock - 1,
+                delta_cents: -1,
+                journal_residual_cents: -1,
+                posting: Some(Box::new(expected)),
+            })
+        );
+
+        // The loop STOPPED. Without this, a loop that swallowed the error and
+        // ran to the end would pass the assertion above.
+        assert_eq!(
+            reached,
+            Some(CORRUPTED_TICK),
+            "the loop began a tick after the violating one"
+        );
+    }
+
+    #[test]
+    fn the_identical_loop_with_no_seeded_leak_runs_every_tick() {
+        // The control. The corruption is the only difference between this test
+        // and the one above, so a loop that halted for some other reason —
+        // an unaffordable transfer, a check misreading healthy books — would
+        // fail here rather than look like a working negative test.
+        let mut reached = None;
+        assert_eq!(run_loop(false, &mut reached), Ok(()));
+        assert_eq!(reached, Some(TICKS - 1));
+    }
+}
+
+/// Localisation (LEDG-09): the reported posting is the **first** one that broke
+/// the residual, even when a later posting heals it.
+///
+/// Named `localise` so an `invariants::localise` module-path filter selects
+/// exactly these.
+///
+/// This is the module that falsifies or confirms the localisation claim. The
+/// scan in this file is linear and forward, and it must stay one: residuals
+/// cancel, so a search that repeatedly discards half the journal reports a
+/// later, healthy-looking posting. The first test reproduces exactly the
+/// journal the phase research measured that on.
+#[cfg(test)]
+mod localise {
+    use super::*;
+    use std::path::Path;
+
+    use crate::ids::{FirmId, FirmSlot, HouseholdId};
+    use crate::money::Money;
+
+    /// The measured case, from the phase research: a journal broken at posting
+    /// 50, healed at posting 120 and broken again at posting 200. A halving
+    /// search over that residual sequence answers 200. The correct answer — the
+    /// posting where the books first stopped conserving — is 50, and a debugger
+    /// sent to 200 spends a day in the wrong part of the tick.
+    const BREAK_AT: u32 = 50;
+    const HEAL_AT: u32 = 120;
+    const BREAK_AGAIN_AT: u32 = 200;
+
+    /// Where the monotone journal breaks: early, and only once.
+    const LONE_BREAK_AT: u32 = 10;
+
+    fn shipped_with_liveness(enabled: bool) -> Params {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
+        let (mut params, _hash) = crate::config::load(&path).expect("the configuration loads");
+        params.invariants.liveness_enabled = enabled;
+        params
+    }
+
+    fn household(index: u32) -> Account {
+        Account::Household(HouseholdId(index))
+    }
+
+    fn firm(slot: u16) -> Account {
+        Account::Firm(FirmId {
+            slot: FirmSlot(slot),
+            generation: 0,
+        })
+    }
+
+    fn check_for(id: CheckId) -> CheckFn {
+        let (_, _, check) = ALL_CHECKS
+            .iter()
+            .copied()
+            .find(|(entry, _, _)| *entry == id)
+            .expect("every identifier has a table entry");
+        check
+    }
+
+    fn opened() -> (Books, i64) {
+        let params = shipped_with_liveness(false);
+        let books = Books::new(&params).expect("the shipped endowment sums to the stock");
+        (books, params.money.total_money_cents)
+    }
+
+    /// Record `count` conserving transfers, each of which leaves the running
+    /// residual exactly where it found it.
+    fn clean(books: &mut Books, count: u32) {
+        for _ in 0..count {
+            books
+                .transfer(household(0), firm(0), Money::from_cents(1))
+                .expect("an endowed household can pay a cent");
+        }
+    }
+
+    #[test]
+    fn the_first_break_is_reported_even_when_a_later_posting_heals_the_residual() {
+        let (mut books, stock) = opened();
+
+        clean(&mut books, BREAK_AT);
+        let early = books.corrupt_recorded_cash(firm(0), household(0), 100, 1);
+        clean(&mut books, HEAL_AT - BREAK_AT - 1);
+        let healed = books.corrupt_recorded_cash(firm(0), household(0), 100, -1);
+        clean(&mut books, BREAK_AGAIN_AT - HEAL_AT - 1);
+        let late = books.corrupt_recorded_cash(firm(0), household(0), 100, 7);
+
+        // The journal really has the shape the research measured.
+        assert_eq!(early.seq, BREAK_AT);
+        assert_eq!(healed.seq, HEAL_AT);
+        assert_eq!(late.seq, BREAK_AGAIN_AT);
+
+        // And the residual really does cancel: non-zero, then zero, then
+        // non-zero again. Without this the test would prove nothing a monotone
+        // journal does not already prove.
+        assert_eq!(early.cash_residual_cents, 1);
+        assert_eq!(healed.cash_residual_cents, 0);
+        assert_eq!(late.cash_residual_cents, 7);
+        assert_eq!(
+            books.journal()[HEAL_AT as usize - 1].cash_residual_cents,
+            1,
+            "the run is broken right up to the healing posting"
+        );
+        assert_eq!(
+            books.journal()[BREAK_AGAIN_AT as usize - 1].cash_residual_cents,
+            0,
+            "and conserving again right up to the second break"
+        );
+
+        // The claim itself, in both directions.
+        assert_eq!(first_breaking_cash_posting(books.journal()), Some(early));
+        assert_ne!(
+            first_breaking_cash_posting(books.journal()),
+            Some(late),
+            "a halving search over this journal answers posting {BREAK_AGAIN_AT}; \
+             the posting where the books first stopped conserving is {BREAK_AT}, \
+             and reporting the later one is the signature of a bisection having \
+             replaced the linear scan"
+        );
+
+        // Through the production check, by whole-value equality.
+        assert_eq!(
+            check_for(CheckId::MoneyConservation)(&books, 2),
+            Err(Violation::MoneyConservation {
+                tick: 2,
+                expected_cents: stock,
+                actual_cents: stock + 7,
+                delta_cents: 7,
+                journal_residual_cents: 7,
+                posting: Some(Box::new(early)),
+            })
+        );
+    }
+
+    #[test]
+    fn the_monotone_case_reports_the_only_break() {
+        // The other shape: one break, never healed. The scan is proved on both,
+        // so a change that got the cancelling case right by accident and this
+        // one wrong still fails.
+        let (mut books, stock) = opened();
+
+        clean(&mut books, LONE_BREAK_AT);
+        let broke = books.corrupt_recorded_cash(firm(0), household(0), 100, -1);
+        clean(&mut books, LONE_BREAK_AT);
+
+        assert_eq!(broke.seq, LONE_BREAK_AT);
+        let split = LONE_BREAK_AT as usize;
+        for posting in &books.journal()[..split] {
+            assert_eq!(posting.cash_residual_cents, 0, "{posting}");
+        }
+        for posting in &books.journal()[split..] {
+            assert_eq!(posting.cash_residual_cents, -1, "{posting}");
+        }
+
+        assert_eq!(first_breaking_cash_posting(books.journal()), Some(broke));
+        assert_eq!(
+            check_for(CheckId::MoneyConservation)(&books, 1),
+            Err(Violation::MoneyConservation {
+                tick: 1,
+                expected_cents: stock,
+                actual_cents: stock - 1,
+                delta_cents: -1,
+                journal_residual_cents: -1,
+                posting: Some(Box::new(broke)),
+            })
+        );
+    }
+}
+
+/// The message contract (LEDG-09): what a human reads when a run halts.
+///
+/// Named `message` so an `invariants::message` module-path filter selects
+/// exactly these.
+///
+/// **This is the one module whose subject is the rendered form**, which is why
+/// substring assertions belong here and nowhere else. Every claim about *which*
+/// violation fired is made by value, in the `negative` and `localise` modules
+/// above.
+///
+/// Each message must name the tick. Each that names an agent must contain that
+/// agent's rendered address, compared against the address type's own `Display`
+/// rather than a hand-typed string, so the two cannot drift. Each that carries a
+/// posting must contain that posting's rendered form, and the variant that
+/// carries none must not invent one. And no message may contain a path
+/// separator in either direction — the runtime half of the rule that a halt
+/// message carries no path, host name, wall-clock reading or process id
+/// (TICK-06). Plan 02-06 adds the source-level half.
+#[cfg(test)]
+mod message {
+    use super::*;
+
+    use crate::ids::{FirmId, FirmSlot, HouseholdId};
+
+    /// The one good v1 carries.
+    const FOOD: GoodId = GoodId(0);
+
+    /// How many shapes [`ZeroSumDetail`] carries. Eight, not the six an earlier
+    /// draft of this phase expected: a one-party kind naming two accounts and an
+    /// exchange with an empty leg are both expressible and both refused.
+    const DETAIL_SHAPES: usize = 8;
+
+    fn household(index: u32) -> Account {
+        Account::Household(HouseholdId(index))
+    }
+
+    fn firm(slot: u16) -> Account {
+        Account::Firm(FirmId {
+            slot: FirmSlot(slot),
+            generation: 0,
+        })
+    }
+
+    /// The posting the variants that carry one embed.
+    fn posting() -> Posting {
+        Posting {
+            seq: 4,
+            kind: PostingKind::Transfer,
+            debit: household(1),
+            credit: firm(2),
+            debit_cents: 100,
+            credit_cents: 101,
+            good: FOOD,
+            units_out: 0,
+            units_in: 0,
+            cash_residual_cents: 1,
+            goods_residual_units: 0,
+        }
+    }
+
+    /// A stable position per [`ZeroSumDetail`] variant.
+    ///
+    /// Exhaustive by construction: a new variant stops this from compiling and
+    /// the compiler names the line, so a detail cannot be added without being
+    /// given a message test.
+    fn detail_position(detail: ZeroSumDetail) -> usize {
+        match detail {
+            ZeroSumDetail::CashLegsDiffer { .. } => 0,
+            ZeroSumDetail::UnitLegsDiffer { .. } => 1,
+            ZeroSumDetail::CashOnAGoodsOnlyPosting { .. } => 2,
+            ZeroSumDetail::UnitsOnACashOnlyPosting { .. } => 3,
+            ZeroSumDetail::SelfDealing { .. } => 4,
+            ZeroSumDetail::SplitParties { .. } => 5,
+            ZeroSumDetail::EmptyExchange { .. } => 6,
+            ZeroSumDetail::EndowmentHasADebitLeg { .. } => 7,
+        }
+    }
+
+    /// One of every detail shape, in the order [`detail_position`] numbers them.
+    fn every_detail() -> [ZeroSumDetail; DETAIL_SHAPES] {
+        [
+            ZeroSumDetail::CashLegsDiffer {
+                debit_cents: 100,
+                credit_cents: 101,
+            },
+            ZeroSumDetail::UnitLegsDiffer {
+                units_out: 3,
+                units_in: 4,
+            },
+            ZeroSumDetail::CashOnAGoodsOnlyPosting {
+                debit_cents: 7,
+                credit_cents: 7,
+            },
+            ZeroSumDetail::UnitsOnACashOnlyPosting {
+                units_out: 3,
+                units_in: 3,
+            },
+            ZeroSumDetail::SelfDealing { account: firm(2) },
+            ZeroSumDetail::SplitParties {
+                debit: household(1),
+                credit: firm(2),
+            },
+            ZeroSumDetail::EmptyExchange { cents: 0, units: 5 },
+            ZeroSumDetail::EndowmentHasADebitLeg {
+                debit_cents: 40,
+                units_out: 2,
+            },
+        ]
+    }
+
+    /// A stable position per [`Violation`] variant, exhaustive on the same
+    /// terms [`detail_position`] is.
+    fn violation_position(violation: &Violation) -> usize {
+        match violation {
+            Violation::MoneyConservation { .. } => 0,
+            Violation::GoodsConservation { .. } => 1,
+            Violation::Negative { .. } => 2,
+            Violation::ZeroSum { .. } => 3,
+            Violation::Liveness { .. } => 4,
+        }
+    }
+
+    fn money(posting: Option<Box<Posting>>) -> Violation {
+        Violation::MoneyConservation {
+            tick: 12,
+            expected_cents: 2_000_000,
+            actual_cents: 1_999_999,
+            delta_cents: -1,
+            journal_residual_cents: -1,
+            posting,
+        }
+    }
+
+    fn goods(posting: Option<Box<Posting>>) -> Violation {
+        Violation::GoodsConservation {
+            tick: 13,
+            good: FOOD,
+            produced: 3_300,
+            consumed: 1_100,
+            stock: 2_201,
+            delta_units: -1,
+            journal_residual_units: -1,
+            posting,
+        }
+    }
+
+    fn negative(posting: Option<Box<Posting>>) -> Violation {
+        Violation::Negative {
+            tick: 14,
+            account: firm(3),
+            field: NegativeField::Stock,
+            value: -7,
+            posting,
+        }
+    }
+
+    fn liveness() -> Violation {
+        Violation::Liveness {
+            tick: 15,
+            counted: 0,
+            required: MINIMUM_TRANSACTIONS_PER_TICK,
+        }
+    }
+
+    /// Every violation this crate can render: the three optional-posting
+    /// variants in both of their shapes, one zero-sum per detail, and liveness.
+    fn every_violation() -> Vec<Violation> {
+        let mut violations = vec![
+            money(Some(Box::new(posting()))),
+            money(None),
+            goods(Some(Box::new(posting()))),
+            goods(None),
+            negative(Some(Box::new(posting()))),
+            negative(None),
+            liveness(),
+        ];
+        for detail in every_detail() {
+            violations.push(Violation::ZeroSum {
+                tick: 16,
+                posting: Box::new(posting()),
+                detail,
+            });
+        }
+        violations
+    }
+
+    #[test]
+    fn the_money_conservation_message_names_the_tick_the_numbers_and_the_posting() {
+        let rendered = money(Some(Box::new(posting()))).to_string();
+        assert!(rendered.contains("tick 12"), "{rendered}");
+        assert!(rendered.contains("2000000"), "{rendered}");
+        assert!(rendered.contains("1999999"), "{rendered}");
+        assert!(rendered.contains(&posting().to_string()), "{rendered}");
+        assert!(rendered.contains(&household(1).to_string()), "{rendered}");
+
+        // And the case where no posting accounts for the discrepancy: the
+        // message says so in those terms rather than naming a placeholder.
+        let silent = money(None).to_string();
+        assert!(silent.contains("tick 12"), "{silent}");
+        assert!(silent.contains("no offending posting"), "{silent}");
+        assert!(
+            !silent.contains(&posting().to_string()),
+            "a violation carrying no posting must not render one: {silent}"
+        );
+    }
+
+    #[test]
+    fn the_goods_conservation_message_names_the_tick_the_good_and_the_posting() {
+        let rendered = goods(Some(Box::new(posting()))).to_string();
+        assert!(rendered.contains("tick 13"), "{rendered}");
+        assert!(rendered.contains(&FOOD.to_string()), "{rendered}");
+        assert!(rendered.contains("3300"), "{rendered}");
+        assert!(rendered.contains("2201"), "{rendered}");
+        assert!(rendered.contains(&posting().to_string()), "{rendered}");
+
+        let silent = goods(None).to_string();
+        assert!(silent.contains("tick 13"), "{silent}");
+        assert!(silent.contains("no offending posting"), "{silent}");
+        assert!(!silent.contains(&posting().to_string()), "{silent}");
+    }
+
+    #[test]
+    fn the_negative_message_names_the_tick_the_account_the_column_and_the_value() {
+        let rendered = negative(Some(Box::new(posting()))).to_string();
+        assert!(rendered.contains("tick 14"), "{rendered}");
+        // The address type's own rendering, never a hand-typed "firm:3:0": the
+        // two would be free to drift.
+        assert!(rendered.contains(&firm(3).to_string()), "{rendered}");
+        assert!(
+            rendered.contains(&NegativeField::Stock.to_string()),
+            "{rendered}"
+        );
+        assert!(rendered.contains("-7"), "{rendered}");
+        assert!(rendered.contains(&posting().to_string()), "{rendered}");
+
+        let silent = negative(None).to_string();
+        assert!(silent.contains("no offending posting"), "{silent}");
+        assert!(!silent.contains(&posting().to_string()), "{silent}");
+    }
+
+    #[test]
+    fn the_zero_sum_message_names_the_tick_the_posting_and_what_disagreed() {
+        let details = every_detail();
+        assert_eq!(
+            details.len(),
+            DETAIL_SHAPES,
+            "one case per detail shape and no more"
+        );
+        assert_eq!(
+            details
+                .iter()
+                .copied()
+                .map(detail_position)
+                .collect::<Vec<usize>>(),
+            (0..DETAIL_SHAPES).collect::<Vec<usize>>(),
+            "each shape appears exactly once, in the order the positions number them"
+        );
+
+        for detail in details {
+            let violation = Violation::ZeroSum {
+                tick: 16,
+                posting: Box::new(posting()),
+                detail,
+            };
+            let rendered = violation.to_string();
+            assert!(rendered.contains("tick 16"), "{rendered}");
+            assert!(rendered.contains(&posting().to_string()), "{rendered}");
+            assert!(rendered.contains(&detail.to_string()), "{rendered}");
+        }
+
+        // The two shapes that name an agent must render that agent's address
+        // through the address type's own `Display`.
+        let self_dealing = Violation::ZeroSum {
+            tick: 16,
+            posting: Box::new(posting()),
+            detail: ZeroSumDetail::SelfDealing { account: firm(2) },
+        }
+        .to_string();
+        assert!(
+            self_dealing.contains(&firm(2).to_string()),
+            "{self_dealing}"
+        );
+
+        let split = Violation::ZeroSum {
+            tick: 16,
+            posting: Box::new(posting()),
+            detail: ZeroSumDetail::SplitParties {
+                debit: household(1),
+                credit: firm(2),
+            },
+        }
+        .to_string();
+        assert!(split.contains(&household(1).to_string()), "{split}");
+        assert!(split.contains(&firm(2).to_string()), "{split}");
+    }
+
+    #[test]
+    fn the_liveness_message_names_the_counts_and_invents_no_posting() {
+        let rendered = liveness().to_string();
+        assert!(rendered.contains("tick 15"), "{rendered}");
+        assert!(rendered.contains("0 transactions"), "{rendered}");
+        assert!(
+            rendered.contains(&format!(
+                "at least {MINIMUM_TRANSACTIONS_PER_TICK} required"
+            )),
+            "{rendered}"
+        );
+        assert!(
+            !rendered.contains(&posting().to_string()),
+            "the liveness variant carries no posting by construction and must \
+             invent none: {rendered}"
+        );
+    }
+
+    #[test]
+    fn every_variant_is_exercised_and_no_message_carries_a_path() {
+        let violations = every_violation();
+
+        let mut covered: Vec<usize> = violations.iter().map(violation_position).collect();
+        covered.sort_unstable();
+        covered.dedup();
+        assert_eq!(
+            covered,
+            (0..5).collect::<Vec<usize>>(),
+            "every violation variant is rendered by this module"
+        );
+
+        for violation in &violations {
+            let rendered = violation.to_string();
+            assert!(
+                !rendered.contains('/'),
+                "a halt message must carry no path (TICK-06): {rendered}"
+            );
+            assert!(
+                !rendered.contains('\\'),
+                "a halt message must carry no path (TICK-06): {rendered}"
+            );
+        }
+    }
+}
