@@ -387,6 +387,33 @@ pub enum BooksError {
         opening_cents: i64,
     },
 
+    /// The per-agent cash endowment does not fit in the money range, so the
+    /// books cannot be opened on it at all.
+    ///
+    /// The cash counterpart of [`BooksError::InitialInventoryOutOfRange`], and
+    /// it exists for the sharper of the two reasons. The money side's
+    /// conservation gate used to be the running residual alone, and that
+    /// residual is accumulated with saturating arithmetic — so a mixed-sign
+    /// endowment large enough to clamp at `i64::MAX` in the household loop
+    /// could be brought back to exactly zero by the negative firm legs, and the
+    /// gate would read a number that is no longer the endowment. A saturated
+    /// sum is silent by construction; only checked arithmetic can report it,
+    /// and `Money::from_cents` is infallible by design.
+    ///
+    /// `Params::validate` bounds `money.total_money_cents` but neither
+    /// liquidity key, so this is the boundary at which the two are bounded.
+    #[error(
+        "an endowment of {household_liquidity_cents} cents across {households} \
+         households and {firm_liquidity_cents} cents across {firms} firm slots is \
+         not a sum these books can hold"
+    )]
+    EndowmentOutOfRange {
+        households: u32,
+        household_liquidity_cents: i64,
+        firms: u16,
+        firm_liquidity_cents: i64,
+    },
+
     /// The configured initial inventory is not a quantity a firm can hold:
     /// negative, or so large that endowing every slot leaves the total outside
     /// the integer range.
@@ -574,13 +601,59 @@ impl Books {
         let households = params.sim.households as usize;
         let firms = firm_slots as usize;
 
+        // The cash endowment, in closed form and with CHECKED arithmetic, on
+        // exactly the terms the inventory endowment below uses.
+        //
+        // **This is the money side's real conservation gate, and it cannot be
+        // the running residual.** That residual is accumulated in `record` with
+        // `saturating_add`, because it is a diagnostic quantity that must not
+        // abort the report of a broken invariant. Saturation is silent: a
+        // mixed-sign endowment — a supported shape, and one
+        // `invariants::non_negative::households_endowed_negative` builds — can
+        // clamp the running sum at `i64::MAX` during the household loop and
+        // then be brought back to exactly zero by the negative firm legs, so
+        // `cash_residual_cents == 0` would report books that do not conserve.
+        // The first `check_money` would then call `total_money()`, whose
+        // `Sum for Money` folds with the *panicking* `Add`, and the process
+        // would abort from inside the invariant phase — which `check_money`'s
+        // own comment says must never be the thing that fails.
+        //
+        // Checking the closed form rather than the running sum also closes the
+        // intermediate case: `households * liquidity` can overflow while the
+        // final total fits, and no check on the final total alone would see it.
+        // Both liquidities come from the operator and `Params::validate` bounds
+        // neither, so this is reported as a named typed error rather than
+        // aborted, exactly as `InitialInventoryOutOfRange` is.
+        let household_liquidity_cents = params.household.initial_liquidity_cents;
+        let firm_liquidity_cents = params.firm.initial_liquidity_cents;
+        let endowed_cents = i64::from(params.sim.households)
+            .checked_mul(household_liquidity_cents)
+            .zip(i64::from(firm_slots).checked_mul(firm_liquidity_cents))
+            .and_then(|(households_owed, firms_owed)| households_owed.checked_add(firms_owed));
+        let Some(endowed_cents) = endowed_cents else {
+            return Err(BooksError::EndowmentOutOfRange {
+                households: params.sim.households,
+                household_liquidity_cents,
+                firms: firm_slots,
+                firm_liquidity_cents,
+            });
+        };
+        if endowed_cents != opening_cents {
+            return Err(BooksError::EndowmentDoesNotSumToStock {
+                endowed_cents,
+                opening_cents,
+            });
+        }
+
         // A stock at the far negative end of the range has no representable
         // negation, so no endowment can sum to it. Unreachable for parameters
         // that came through `config::load`, which refuses a non-positive stock,
-        // and reported rather than aborted because the number is the operator's.
+        // and unreachable a second time now that the endowment has been proved
+        // equal to it above. Reported rather than aborted because the number is
+        // the operator's.
         let Some(residual_seed) = opening_cents.checked_neg() else {
             return Err(BooksError::EndowmentDoesNotSumToStock {
-                endowed_cents: 0,
+                endowed_cents,
                 opening_cents,
             });
         };
@@ -679,13 +752,26 @@ impl Books {
             });
         }
 
+        // The recorder's own statement about the same sum, and a second,
+        // independent one: the gate above is the closed form computed from the
+        // parameters, while this is what `record` accumulated from the legs of
+        // the endowment postings it was handed. Unreachable while both are
+        // correct, which is exactly why it is worth keeping — it is the one
+        // place a defect in `record`'s residual arithmetic surfaces before tick
+        // zero. Reported with the number the RECORDER saw, and with checked
+        // arithmetic: `unwrap_or(i64::MAX)` here would put a fabricated total
+        // in an operator-facing message.
         if books.cash_residual_cents != 0 {
-            let endowed_cents = books
-                .cash_residual_cents
-                .checked_add(opening_cents)
-                .unwrap_or(i64::MAX);
+            let Some(recorded_cents) = books.cash_residual_cents.checked_add(opening_cents) else {
+                return Err(BooksError::EndowmentOutOfRange {
+                    households: params.sim.households,
+                    household_liquidity_cents,
+                    firms: firm_slots,
+                    firm_liquidity_cents,
+                });
+            };
             return Err(BooksError::EndowmentDoesNotSumToStock {
-                endowed_cents,
+                endowed_cents: recorded_cents,
                 opening_cents,
             });
         }
@@ -1775,6 +1861,81 @@ mod tests {
                 endowed_cents: expected_endowment,
                 opening_cents: params.money.total_money_cents,
             })
+        );
+    }
+
+    #[test]
+    fn a_mixed_sign_endowment_that_saturates_the_running_sum_is_refused_not_accepted() {
+        // **The case the running residual cannot see.** `record` accumulates
+        // the construction residual with `saturating_add`, so an endowment whose
+        // household leg alone overflows clamps at `i64::MAX` and is then brought
+        // back towards zero by a negative firm leg. If the residual were the
+        // only gate, the books would open holding a total that is not the
+        // configured stock, and the first `check_money` would abort inside
+        // `total_money()`'s panicking `Sum` — from inside the invariant phase,
+        // which is the one place a failure must never come from.
+        //
+        // A mixed-sign endowment is a supported shape:
+        // `invariants::non_negative::households_endowed_negative` builds one.
+        // So the refusal is on representability, not on sign.
+        let mut params = shipped();
+        params.household.initial_liquidity_cents = i64::MAX / 2;
+        params.firm.initial_liquidity_cents = -(i64::MAX / 2);
+
+        assert_eq!(
+            Books::new(&params).err(),
+            Some(BooksError::EndowmentOutOfRange {
+                households: params.sim.households,
+                household_liquidity_cents: i64::MAX / 2,
+                firms: u16::try_from(params.sim.firms).expect("the shipped firm count fits"),
+                firm_liquidity_cents: -(i64::MAX / 2),
+            }),
+            "an endowment that cannot be summed is refused by name, not \
+             accepted on a saturated total"
+        );
+
+        // The same refusal from the addition rather than from either
+        // multiplication: each leg is representable on its own and their sum is
+        // not. Checking only the final total would miss the case above; checking
+        // only the products would miss this one.
+        let mut params = shipped();
+        params.household.initial_liquidity_cents = i64::MAX / i64::from(params.sim.households);
+        params.firm.initial_liquidity_cents = i64::MAX / i64::from(params.sim.firms);
+        assert!(matches!(
+            Books::new(&params).err(),
+            Some(BooksError::EndowmentOutOfRange { .. })
+        ));
+
+        // And the ordinary mismatch still reports the endowment rather than the
+        // representability error, so the two are not conflated.
+        let mut params = shipped();
+        params.money.total_money_cents += 1;
+        assert!(matches!(
+            Books::new(&params).err(),
+            Some(BooksError::EndowmentDoesNotSumToStock { .. })
+        ));
+    }
+
+    #[test]
+    fn a_mixed_sign_endowment_that_does_sum_to_the_stock_still_opens_the_books() {
+        // The refusal above must not have made a legitimate shape unbuildable.
+        // Every household opens below zero and the firms carry the difference —
+        // the configuration `check_non_negative`'s own negative tests rest on.
+        let mut params = shipped();
+        let households = i64::from(params.sim.households);
+        let firms = i64::from(params.sim.firms);
+        let deficit = 100;
+        params.household.initial_liquidity_cents = -deficit;
+        let owed = params.money.total_money_cents + households * deficit;
+        assert_eq!(owed % firms, 0, "the deficit divides across the firm slots");
+        params.firm.initial_liquidity_cents = owed / firms;
+
+        let books = Books::new(&params).expect("a mixed-sign endowment that sums is legitimate");
+        assert_eq!(books.total_money().cents(), params.money.total_money_cents);
+        assert_eq!(books.cash_residual_cents(), 0);
+        assert_eq!(
+            books.cash_of(household(0)),
+            Some(Money::from_cents(-deficit))
         );
     }
 
