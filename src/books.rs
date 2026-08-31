@@ -1,5 +1,5 @@
 //! The books: the one place a cent exists, and the one place a cent moves
-//! (LEDG-01, LEDG-02, LEDG-03, LEDG-04, LEDG-05, LEDG-07, LEDG-09).
+//! (LEDG-01, LEDG-02, LEDG-03, LEDG-04, LEDG-05, LEDG-06, LEDG-07, LEDG-09).
 //!
 //! Every cent in the simulation is held by a [`Books`] value behind private
 //! fields, and the only way to move one is [`Books::transfer`]. No agent type
@@ -34,6 +34,44 @@
 //! stock slot happens to be non-zero at the moment the check runs. No formula,
 //! no field and no check differs, which is why Phase 7 (MKT-06) can settle the
 //! question without touching this file.
+//!
+//! **The books own the headcount too, and that is a decision rather than a
+//! convenience (LEDG-06).** LEDG-06 names cash, inventory *and* headcount as
+//! the three quantities no account may hold a negative amount of. No employment
+//! relation exists before Phase 6, so the headcount could have been left for
+//! Phase 6 to introduce wherever it liked. It is here instead, for three
+//! reasons, and a later reader who wants to move it should weigh all three.
+//!
+//! 1. The books own every quantity an invariant reads. Putting one of the three
+//!    somewhere else makes that sentence false, and a non-negativity check that
+//!    has to reach outside the books for its third column is a check with two
+//!    owners.
+//! 2. It removes a cross-phase promise rather than recording one. Phase 6 has
+//!    nowhere else to put a headcount, so nothing has to be remembered, and the
+//!    alternative — a note in a roadmap saying "Phase 6 must also check
+//!    headcount" — is exactly the kind of promise that is kept until it is not.
+//! 3. **A count is unsigned, so the non-negativity of that column is a fact of
+//!    its type and not a runtime loop.** That matters more than it looks. The
+//!    honest alternative for a quantity nobody owns yet is a loop over an empty
+//!    structure, which passes vacuously and is indistinguishable — in a test
+//!    report, in a coverage number, in a reviewer's reading — from a check that
+//!    works. A type-level fact documented as one cannot rot into that.
+//!
+//! Two things about it are easy to misread, so they are stated flatly.
+//!
+//! **A headcount is not conserved value.** Unlike a balance it has no
+//! counterparty, no opening stock and no conservation identity in this
+//! milestone. [`Books::set_headcount`] therefore does *not* contradict LEDG-01,
+//! which is about cash: there is nothing for a headcount to be moved *from*.
+//! Hiring is not a transfer of people between firms in this model; a firm's
+//! payroll count is simply a number about that firm.
+//!
+//! **[`Books::set_headcount`] is the whole of Phase 2's headcount vocabulary.**
+//! Phase 6 (LABR-01 … LABR-08) owns hiring, firing and the employment relation
+//! itself, and it builds them *on top of* this accessor rather than beside it.
+//! The constructor leaves every slot at zero because no employment exists before
+//! Phase 6 — that is an initial condition of the model, not a tunable, so it
+//! belongs in code and not in the configuration file.
 //!
 //! **Atomicity (LEDG-02) has four legs, and an exclusive borrow is only one.**
 //!
@@ -395,6 +433,21 @@ pub struct Books {
     /// slot outlives its occupant, and a Phase 10 respawn must carry the
     /// inventory forward rather than orphan it.
     firm_stock: Vec<i64>,
+    /// Employees on each firm slot's payroll, keyed by **slot** for the same
+    /// reason that slot's cash and stock are: a slot outlives its occupant, and
+    /// a Phase 10 respawn decides what the successor inherits rather than having
+    /// the answer forced by an orphaned vector entry.
+    ///
+    /// **Unsigned on purpose.** A negative headcount is not representable, so
+    /// LEDG-06's third column is closed by the type rather than by a runtime
+    /// loop over a structure that, in this milestone, no operation fills. See
+    /// this module's headcount note and `check_non_negative` in
+    /// `src/invariants.rs`, which documents the same fact from the other side.
+    ///
+    /// Not a conserved quantity: it has no counterparty, no opening stock and
+    /// no identity to hold. Phase 6 owns the employment relation that gives the
+    /// number its meaning.
+    firm_headcount: Vec<u32>,
     /// Units that have entered the system, ever. Advanced from the **argument**
     /// of [`Books::produce`] and from the constructor's inventory endowment —
     /// never from the journal. That independence from the running residual
@@ -458,6 +511,12 @@ impl Books {
     /// exists to close. Phase 3 therefore reads opening balances from the
     /// accessors below rather than from an endowment event.
     ///
+    /// **Every firm slot opens with an empty payroll.** No employment relation
+    /// exists before Phase 6, so zero is the initial condition of the model
+    /// rather than a value anyone chose — which is why it is written here and
+    /// not read from the configuration file. It is not endowed and records no
+    /// posting: a headcount is not conserved value and has no counterparty.
+    ///
     /// There is no other constructor and no default-construction impl. A
     /// default would build books with a zero opening stock, against which every
     /// conservation check passes trivially.
@@ -508,6 +567,10 @@ impl Books {
             firm_generation: vec![0; firms],
             household_stock: vec![0; households],
             firm_stock: vec![0; firms],
+            // Every slot opens with an empty payroll: no employment relation
+            // exists before Phase 6. An initial condition of the model, not a
+            // parameter, so it is written here and not read from the config.
+            firm_headcount: vec![0; firms],
             produced: 0,
             consumed: 0,
             journal: Vec::new(),
@@ -982,6 +1045,55 @@ impl Books {
     /// Zero when the run conserves.
     pub fn goods_residual_units(&self) -> i64 {
         self.goods_residual_units
+    }
+
+    /// The number of employees on `slot`'s payroll, or `None` if `slot` names no
+    /// firm slot in these books.
+    ///
+    /// Takes a [`FirmSlot`] and not an [`Account`], deliberately. A household
+    /// has no payroll, so an address-shaped accessor would carry an arm that
+    /// answers `None` for every household that has ever existed — a signature
+    /// that invites a caller to ask a question with no answer. Taking the slot
+    /// makes "only a firm has employees" a fact of the type.
+    ///
+    /// An out-of-range slot reads as `None` rather than panicking, on the same
+    /// terms as [`Books::cash_of`]: a read is a question, and the answer to a
+    /// question about an account these books do not hold is "there is none".
+    pub fn headcount_of(&self, slot: FirmSlot) -> Option<u32> {
+        self.firm_headcount.get(slot.0 as usize).copied()
+    }
+
+    /// Set `slot`'s payroll to `count`, returning the count it replaced, or
+    /// `None` if `slot` names no firm slot in these books — in which case
+    /// **nothing is written**.
+    ///
+    /// **This is the whole of Phase 2's headcount vocabulary.** There is no
+    /// hire, no fire and no employment relation here; Phase 6 (LABR-01 …
+    /// LABR-08) owns those and builds them on top of this rather than beside it.
+    ///
+    /// **It does not contradict LEDG-01.** A headcount is not conserved value:
+    /// it has no counterparty and no opening stock, so unlike a balance there is
+    /// nothing for it to be moved *from* and no second account whose number must
+    /// change with it. `set` is therefore the honest verb, where for cash it
+    /// would be a hole in the ledger.
+    ///
+    /// `count` is unsigned, so this method cannot record a negative payroll —
+    /// which is how LEDG-06's third column is closed. See this module's
+    /// headcount note.
+    pub fn set_headcount(&mut self, slot: FirmSlot, count: u32) -> Option<u32> {
+        let entry = self.firm_headcount.get_mut(slot.0 as usize)?;
+        Some(std::mem::replace(entry, count))
+    }
+
+    /// Every employee on every payroll.
+    ///
+    /// Widened to a 64-bit count on the way out: a run may hold up to
+    /// `u16::MAX` slots and each payroll is a `u32`, so the sum of every slot
+    /// can exceed the width of any one of them. Summing at the element width
+    /// would abort under this project's overflow checks on an economy that is
+    /// merely large, which is not a defect worth aborting for.
+    pub fn total_headcount(&self) -> u64 {
+        self.firm_headcount.iter().copied().map(u64::from).sum()
     }
 
     /// This tick's postings, in the order they were recorded.
@@ -1758,5 +1870,158 @@ mod goods {
             assert!(rendered.contains("units_out = 2"), "{rendered}");
             assert!(rendered.contains("units_in = 2"), "{rendered}");
         }
+    }
+}
+
+/// The books' third quantity (LEDG-06), at unit granularity.
+///
+/// Named `headcount` so that a `books::headcount` module-path filter selects
+/// exactly these. There is no non-negativity test here and that is the point:
+/// the count is unsigned, so a negative payroll is not representable and a test
+/// for one could not be compiled, let alone made to fail. What *is* worth
+/// pinning is that the quantity is genuinely owned — that it round-trips, that
+/// it aggregates, that an address outside the arena is refused rather than
+/// panicking, and that it is independent of the two conserved quantities.
+#[cfg(test)]
+mod headcount {
+    use super::*;
+    use std::path::Path;
+
+    fn shipped() -> Params {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("config/baseline.toml");
+        let (params, _hash) = crate::config::load(&path).expect("the shipped configuration loads");
+        params
+    }
+
+    fn books() -> Books {
+        Books::new(&shipped()).expect("the shipped endowment sums to the stock")
+    }
+
+    #[test]
+    fn every_slot_opens_with_an_empty_payroll() {
+        // No employment relation exists before Phase 6, so this is the initial
+        // condition of the model rather than a configured value.
+        let books = books();
+        let firms = shipped().sim.firms;
+
+        assert_eq!(books.total_headcount(), 0);
+        for slot in 0..firms {
+            let slot = u16::try_from(slot).expect("the shipped run has at most u16::MAX slots");
+            assert_eq!(books.headcount_of(FirmSlot(slot)), Some(0));
+        }
+    }
+
+    #[test]
+    fn setting_a_count_then_reading_it_back_round_trips() {
+        let mut books = books();
+
+        assert_eq!(
+            books.set_headcount(FirmSlot(3), 17),
+            Some(0),
+            "the setter reports the count it replaced"
+        );
+        assert_eq!(books.headcount_of(FirmSlot(3)), Some(17));
+
+        assert_eq!(books.set_headcount(FirmSlot(3), 4), Some(17));
+        assert_eq!(books.headcount_of(FirmSlot(3)), Some(4));
+
+        assert_eq!(
+            books.headcount_of(FirmSlot(2)),
+            Some(0),
+            "writing one slot does not touch its neighbour"
+        );
+    }
+
+    #[test]
+    fn the_total_is_the_sum_of_the_individual_counts() {
+        // The aggregate is the accessor the LEDG-06 documentation refers to, so
+        // it is asserted against the counts themselves and never against a
+        // number it maintained on the side.
+        let mut books = books();
+        let firms = u16::try_from(shipped().sim.firms).expect("at most u16::MAX slots");
+
+        let mut expected = 0u64;
+        for slot in 0..firms {
+            let count = u32::from(slot) * 3 + 1;
+            books.set_headcount(FirmSlot(slot), count);
+            expected += u64::from(count);
+        }
+
+        assert_eq!(books.total_headcount(), expected);
+        assert_eq!(
+            books.total_headcount(),
+            (0..firms)
+                .map(|slot| u64::from(books.headcount_of(FirmSlot(slot)).expect("the slot exists")))
+                .sum::<u64>(),
+            "the total is the sum over the slots, read through the same accessor"
+        );
+    }
+
+    #[test]
+    fn a_slot_outside_the_arena_reads_nothing_and_writes_nothing() {
+        // A read is a question, and the answer about a slot these books do not
+        // hold is "there is none" — not a panic, and not a plausible zero.
+        let mut books = books();
+        let outside = FirmSlot(u16::MAX);
+        let before = books.clone();
+
+        assert_eq!(books.headcount_of(outside), None);
+        assert_eq!(books.set_headcount(outside, 9), None);
+        assert_eq!(books.headcount_of(outside), None);
+        assert_eq!(
+            books.total_headcount(),
+            before.total_headcount(),
+            "a refused write leaves the payrolls exactly as it found them"
+        );
+    }
+
+    #[test]
+    fn the_headcount_is_independent_of_the_two_conserved_quantities() {
+        // A headcount has no counterparty and no conservation identity. Moving
+        // cash and moving units must therefore leave it alone, and setting it
+        // must leave both of them alone.
+        let params = shipped();
+        let mut books = Books::new(&params).expect("the books open");
+        let buyer = Account::Household(HouseholdId(0));
+        let seller = Account::Firm(FirmId {
+            slot: FirmSlot(0),
+            generation: 0,
+        });
+
+        books.set_headcount(FirmSlot(0), 11);
+
+        books
+            .transfer(buyer, seller, Money::from_cents(250))
+            .expect("an endowed household can pay");
+        books
+            .produce(seller, ONLY_GOOD, 5)
+            .expect("a firm produces");
+        books
+            .exchange(buyer, seller, ONLY_GOOD, 2, Money::from_cents(100))
+            .expect("a household buys two units");
+        books.consume(buyer, ONLY_GOOD, 2).expect("and eats them");
+
+        assert_eq!(
+            books.headcount_of(FirmSlot(0)),
+            Some(11),
+            "cash and goods operations do not touch a payroll"
+        );
+        assert_eq!(books.total_headcount(), 11);
+
+        let money_before = books.total_money();
+        let stock_before = books.total_stock(ONLY_GOOD);
+        books.set_headcount(FirmSlot(0), 0);
+        assert_eq!(
+            books.total_money(),
+            money_before,
+            "setting a payroll moves no cash"
+        );
+        assert_eq!(
+            books.total_stock(ONLY_GOOD),
+            stock_before,
+            "setting a payroll moves no units"
+        );
+        assert_eq!(books.cash_residual_cents(), 0);
+        assert_eq!(books.goods_residual_units(), 0);
     }
 }
