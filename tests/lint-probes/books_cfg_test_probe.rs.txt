@@ -24,7 +24,11 @@
 // per line means any single one of them resolving turns that line green and
 // changes what the compiler says. Guard 7i in tests/lints.sh pins the other
 // half: every `corrupt_*` method declared in src/books.rs sits inside a
-// `#[cfg(test)]` block, so a fifth one cannot be added outside the gate.
+// `#[cfg(test)]` block, so a sixth one cannot be added outside the gate, and
+// guard 7j pins the count so a sixth one cannot be added without a line here.
+// `corrupt_silent_stock` was the fifth, added with the goods-conservation
+// negative tests, and guard 7j is what refused the commit until this file named
+// it.
 //
 // **The E0599 assertion is load-bearing.** A bare "the build failed" assertion
 // would stay green if this probe stopped compiling for an unrelated reason — a
@@ -68,12 +72,13 @@ fn the_fault_injection_vocabulary_is_reachable_from_an_integration_test() {
         goods_residual_units: 0,
     };
 
-    // The four lines the compiler must refuse, each on its own so that any one
+    // The five lines the compiler must refuse, each on its own so that any one
     // of them resolving changes the diagnostic:
     //   error[E0599]: no method named `corrupt_silent_cash` found for struct
     //                 `Books` in the current scope
     books.corrupt_silent_cash(household, -1);
     books.corrupt_recorded_cash(firm, household, 100, -1);
     books.corrupt_conserving_deficit(household, firm, 100);
+    books.corrupt_silent_stock(firm, GoodId(0), 7);
     books.corrupt_appended_posting(draft);
 }

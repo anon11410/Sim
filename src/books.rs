@@ -1500,7 +1500,7 @@ impl Books {
     }
 }
 
-/// The fault-injection vocabulary: four ways to break these books on purpose.
+/// The fault-injection vocabulary: five ways to break these books on purpose.
 ///
 /// **Gated on the crate's own test configuration, and visible to the crate
 /// only.** Verified on this toolchain in both directions: a method declared
@@ -1521,8 +1521,8 @@ impl Books {
 /// leaves no hole to prove shut. There is therefore no feature, no runtime flag
 /// and no builder switch anywhere in this file.
 ///
-/// **Every method here writes state the public API cannot reach**, and three of
-/// the four leave the books in a condition an invariant exists to reject. They
+/// **Every method here writes state the public API cannot reach**, and four of
+/// the five leave the books in a condition an invariant exists to reject. They
 /// are what turn each check in `src/invariants.rs` from configured into
 /// observed to fire: a check never seen to fire has never been shown to work.
 ///
@@ -1642,6 +1642,38 @@ impl Books {
         let filled = self.cash_at(to_slot).cents() + cents;
         self.write_cash(from_slot, Money::from_cents(drained));
         self.write_cash(to_slot, Money::from_cents(filled));
+    }
+
+    /// Adjust `who`'s holding of `good` by `delta_units`, leave the produced
+    /// and consumed totals alone, and record **nothing**.
+    ///
+    /// The goods analogue of [`Books::corrupt_silent_cash`], and the only way
+    /// to reach the goods check's **balance-derived** arm on its own. Every
+    /// posting in the tick still conserves, so the running goods residual stays
+    /// at zero and `produced − consumed − Σstock` is the sole quantity that
+    /// moved. That separation is the whole point: a corruption that moved both
+    /// sources together could not tell the two arms apart, and a check reading
+    /// one source twice would pass it.
+    ///
+    /// A positive `delta_units` conjures units into an account, which is the
+    /// direction that leaves every other check quiet — the balance stays
+    /// non-negative and no cash moved — so goods conservation is the only one
+    /// that can fire.
+    ///
+    /// Panics if `who` names no account in these books, or if these books do
+    /// not carry `good`: a corruption that silently did nothing would seed a
+    /// green negative test, which is the failure this whole module exists to
+    /// prevent.
+    pub(crate) fn corrupt_silent_stock(&mut self, who: Account, good: GoodId, delta_units: i64) {
+        assert!(
+            Books::carries(good),
+            "a corruption names a good these books carry"
+        );
+        let slot = self
+            .resolve(who)
+            .expect("a corruption names an account these books hold");
+        let adjusted = self.stock_at(slot) + delta_units;
+        self.write_stock(slot, adjusted);
     }
 
     /// Append `draft` to the journal without touching any balance, stamping its
@@ -1812,6 +1844,43 @@ mod corrupt {
              non-negativity and not of conservation"
         );
         assert!(books.journal().is_empty());
+        assert_eq!(books.cash_residual_cents(), 0);
+    }
+
+    #[test]
+    fn a_silent_stock_corruption_moves_one_holding_and_records_nothing() {
+        let mut books = books();
+        let opening_total = books.total_money().cents();
+        let opening_stock = books.total_stock(FOOD);
+        let opening_produced = books.produced(FOOD);
+        let held = books
+            .stock_of(firm(0), FOOD)
+            .expect("the firm is one these books hold");
+
+        books.corrupt_silent_stock(firm(0), FOOD, 7);
+
+        assert_eq!(books.stock_of(firm(0), FOOD), Some(held + 7));
+        assert_eq!(books.total_stock(FOOD), opening_stock + 7);
+
+        // The produced and consumed totals did NOT move, which is what makes
+        // this a break of the identity rather than a well-formed production.
+        assert_eq!(books.produced(FOOD), opening_produced);
+        assert_eq!(books.consumed(FOOD), 0);
+        assert_eq!(
+            books.produced(FOOD) - books.consumed(FOOD) - books.total_stock(FOOD),
+            -7,
+            "the balance-derived arm moved by exactly the seeded amount"
+        );
+
+        // Nothing in the journal describes it, so the goods check's other arm
+        // is left at zero and there is no posting to name. That separation is
+        // the point of this corruption: it reaches one source and not the other.
+        assert!(books.journal().is_empty());
+        assert_eq!(books.goods_residual_units(), 0);
+        assert_eq!(books.transactions_this_tick(), 0);
+
+        // A goods corruption moves no cash.
+        assert_eq!(books.total_money().cents(), opening_total);
         assert_eq!(books.cash_residual_cents(), 0);
     }
 

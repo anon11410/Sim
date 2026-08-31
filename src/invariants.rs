@@ -1125,9 +1125,16 @@ mod liveness {
 /// Named `goods` so that an `invariants::goods` module-path filter selects
 /// exactly these. The point of the pair of models is that the choice changes
 /// nothing here: the same check function, reached through the same table entry,
-/// and the same three accessors, evaluate both worlds. Everything below runs
-/// through the public API with no fault injection — plan 02-05 owns the seeded
-/// corruptions.
+/// and the same three accessors, evaluate both worlds.
+///
+/// **The positive direction is not enough on its own.** A check never observed
+/// to fire has never been shown to work, and the whole of `check_goods` could
+/// once be replaced by `Ok(())` with the entire suite green. The last two tests
+/// close that: each seeds a fault and watches the check fire, one per arm of
+/// the comparison — the journal residual accumulated from posting legs, and the
+/// balance-derived `produced − consumed − Σstock`. They are here rather than in
+/// `negative` because the arms are a property of this identity, and neutering
+/// either one alone must still turn a test red.
 ///
 /// Violations are asserted by whole-value equality against a constructed
 /// [`Violation`], never by matching a substring of a rendered message.
@@ -1178,6 +1185,31 @@ mod goods {
         );
         assert_eq!(name, "goods_conservation");
         check
+    }
+
+    /// A sibling check, taken from the table by identifier.
+    ///
+    /// The control assertions in the two negative tests below run the functions
+    /// the tick loop dispatches to, not private functions that happen to share
+    /// their names, so a check removed from the table fails here rather than
+    /// keeping a green control in isolation.
+    fn check_for(id: CheckId) -> CheckFn {
+        let (_, _, check) = ALL_CHECKS
+            .iter()
+            .copied()
+            .find(|(entry, _, _)| *entry == id)
+            .expect("every identifier has a table entry");
+        check
+    }
+
+    /// The units the constructor endows, computed from the parameters.
+    ///
+    /// Derived from the configuration rather than read back out of the books:
+    /// an expected value captured from the system under test agrees with it
+    /// however wrong both are, and the two tests below assert `produced` and
+    /// `stock` as part of a whole-`Violation` equality.
+    fn endowed_units(params: &Params) -> i64 {
+        i64::from(params.sim.firms) * params.firm.initial_inventory_units
     }
 
     /// The identity read through the public accessors, which is the same
@@ -1312,6 +1344,122 @@ mod goods {
                 required: MINIMUM_TRANSACTIONS_PER_TICK,
             })
         );
+    }
+
+    #[test]
+    fn an_exchange_whose_unit_legs_disagree_is_a_goods_leak_and_is_localised() {
+        // LEDG-05, the journal-residual arm. Three units leave the seller and
+        // one arrives at the buyer. No balance moved, so `produced − consumed −
+        // Σstock` still holds exactly and the running residual accumulated from
+        // the posting's own legs is the only source that knows two units went
+        // missing — which is what makes the two sources independent rather than
+        // one number compared against itself.
+        let params = shipped_with_liveness(false);
+        let mut books = Books::new(&params).expect("the books open");
+        let endowed = endowed_units(&params);
+
+        let posting = books.corrupt_appended_posting(Posting {
+            seq: 0,
+            kind: PostingKind::Exchange,
+            debit: buyer(),
+            credit: seller(),
+            debit_cents: 400,
+            credit_cents: 400,
+            good: FOOD,
+            units_out: 3,
+            units_in: 1,
+            cash_residual_cents: 0,
+            goods_residual_units: 0,
+        });
+
+        assert_eq!(
+            books.goods_residual_units(),
+            2,
+            "the recorder stamped the residual from the legs; this test did not"
+        );
+        assert_eq!(
+            identity(&books),
+            0,
+            "the balance-derived arm is untouched, so only the other one can fire"
+        );
+
+        let leak = Violation::GoodsConservation {
+            tick: 5,
+            good: FOOD,
+            produced: endowed,
+            consumed: 0,
+            stock: endowed,
+            delta_units: 0,
+            journal_residual_units: 2,
+            posting: Some(Box::new(posting)),
+        };
+        assert_eq!(goods_check()(&books, 5), Err(leak.clone()));
+
+        // And the check set reports it, so the fault is reached through the
+        // table the tick loop dispatches from rather than only by hand. Money
+        // conservation runs first and passes, which is the ordering contract
+        // made concrete on a goods-only fault.
+        let checks = CheckSet::from_params(&params);
+        assert_eq!(checks.run(&books, 5), Err(leak));
+
+        // The controls. A goods leak is not a cash leak and drives nothing
+        // negative; without these, a check that reported every books as broken
+        // would pass the assertion above.
+        assert_eq!(check_for(CheckId::MoneyConservation)(&books, 5), Ok(()));
+        assert_eq!(check_for(CheckId::NonNegative)(&books, 5), Ok(()));
+    }
+
+    #[test]
+    fn units_conjured_outside_the_posting_path_break_the_identity_and_name_no_posting() {
+        // LEDG-05, the balance-derived arm, and LEDG-09's honest case for it.
+        // Seven units appear in a firm's inventory with no posting describing
+        // them: `produced − consumed − Σstock` is short by exactly seven while
+        // every posting in the journal still conserves, so there is genuinely
+        // no offending posting and the violation says so rather than inventing
+        // one. Neutering either arm alone leaves this test or its sibling red.
+        let params = shipped_with_liveness(false);
+        let mut books = Books::new(&params).expect("the books open");
+        let endowed = endowed_units(&params);
+
+        books.corrupt_silent_stock(seller(), FOOD, 7);
+
+        assert_eq!(
+            books.goods_residual_units(),
+            0,
+            "no posting was recorded, so the journal arm is untouched"
+        );
+        assert_eq!(identity(&books), -7);
+
+        let outcome = goods_check()(&books, 6);
+        assert_eq!(
+            outcome,
+            Err(Violation::GoodsConservation {
+                tick: 6,
+                good: FOOD,
+                produced: endowed,
+                consumed: 0,
+                stock: endowed + 7,
+                delta_units: -7,
+                journal_residual_units: 0,
+                posting: None,
+            })
+        );
+
+        // The one message assertion in this module, on the same terms
+        // `negative::a_drop_written_outside_the_posting_path_names_no_posting_and_says_so`
+        // sets: a synthetic posting in a halt message is a lie a future reader
+        // chases, so the message has to say what actually happened.
+        let rendered = outcome
+            .expect_err("seven units came from nowhere")
+            .to_string();
+        assert!(rendered.contains("no offending posting"), "{rendered}");
+
+        // The controls. Conjured units move no cash, drive no balance negative
+        // and malform no posting, so goods conservation is the only check that
+        // can fire on these books.
+        assert_eq!(check_for(CheckId::MoneyConservation)(&books, 6), Ok(()));
+        assert_eq!(check_for(CheckId::NonNegative)(&books, 6), Ok(()));
+        assert_eq!(check_for(CheckId::ZeroSum)(&books, 6), Ok(()));
     }
 
     #[test]

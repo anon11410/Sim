@@ -1,10 +1,10 @@
 ---
 schema_version: 1
-open_count: 19
+open_count: 20
 waived_count: 0
-fixed_count: 3
-total_count: 22
-last_updated: 2026-08-31T11:26:22.135Z
+fixed_count: 4
+total_count: 24
+last_updated: 2026-08-31T11:49:41.130Z
 ---
 
 # Broken Windows Ledger
@@ -37,6 +37,8 @@ last_updated: 2026-08-31T11:26:22.135Z
 | 20 | 02 | unmet-truth | tests/ledger_props.rs |  | Code-review finding WR-02: posting_residuals_agree_with_the_balance_derived_quantities is structurally 0 == 0 from an integration test, because record derives both residuals from the same argument the balance write used. Verified by mutation - deriving record's cash residual from total_money() leaves all 8 properties in the file green. DISCHARGED by books::tests::the_two_residual_sources_move_apart_when_only_one_of_them_is_told, which appends postings whose legs disagree while touching no balance and is the only thing that fails under that mutation. The property's doc comment now records what it does and does not prove, and names the unit test. Same shape as ledger entry 12. | fixed |  | 2026-08-31T11:26:09.601Z | 2026-08-31T11:26:22.135Z |
 | 21 | 02 | deviation | .planning/ROADMAP.md |  | Code-review finding WR-06 asked for the guard-7d scope extension to be recorded as a ROADMAP success criterion, the way guard 7f's inherited obligation is. NOT WRITTEN: this fix pass is explicitly barred from editing .planning/ROADMAP.md and .planning/STATE.md. The obligation is discharged rather than deferred - guard 7d now searches every tracked src/*.rs with src/rng.rs carved out by name, so a Phase 3 src/world.rs naming debug_assert or cfg(debug_assertions) fails the guard on the commit that adds it, with no promise for a future reader to keep. Watched firing on exactly that shape. | open |  | 2026-08-31T11:26:09.827Z |  |
 | 22 | 02 | deviation | src/books.rs |  | Code-review fix WR-01 added BooksError::EndowmentOutOfRange and an up-front checked closed-form endowment gate in Books::new, and WR-07 added Books::goods_residual_units_for(GoodId). Both are new public API in a review-fix pass. The first is required because the money-side gate was a saturating running sum; the second because check_goods read one residual outside its per-good loop. Phase 5 changes goods_residual_units_for's body and check_goods does not move; the GOODS doc comment now lists the four things Phase 5 actually inherits instead of promising that nothing moves. | open |  | 2026-08-31T11:26:10.066Z |  |
+| 23 | 02 | unmet-truth | src/invariants.rs | 581 | ROADMAP Phase 2 criterion 2 ('the negative test passes for EVERY check') was met for four of the five checks. check_goods (goods conservation, LEDG-05) had no negative test: every call site reaching it asserted Ok(()), the localisation test called first_breaking_goods_posting directly, and the message module rendered a hand-built GoodsConservation the check never produced. Verified by 02-VERIFICATION mutation M10 - replacing the whole body with 'if true { return Ok(()); }' left all 239 tests green. Plan 02-05 scoped exactly four violation classes (LEDG-04/06/07/10) and goods was never in scope, so the 'every check' self-audit never ran and nothing recorded the omission. | fixed |  | 2026-08-31T11:49:16.631Z | 2026-08-31T11:49:20.831Z |
+| 24 | 02 | deviation | src/books.rs |  | Closure of ledger entry 23. Books gains a fifth corruption method, corrupt_silent_stock(Account, GoodId, i64) - #[cfg(test)] pub(crate), no feature flag, no production surface - because no existing corruption could reach the goods check's balance-derived arm without also moving the journal arm. invariants::goods gains two negative tests, one per arm: an_exchange_whose_unit_legs_disagree_is_a_goods_leak_and_is_localised (journal residual 2, delta_units 0, posting Some) and units_conjured_outside_the_posting_path_break_the_identity_and_name_no_posting (delta_units -7, journal residual 0, posting None). Mutation-verified three ways: neutering the whole body fails both, neutering journal_residual_units fails only the first, neutering delta_units fails only the second. Two cross-phase obligations. (a) tests/lints.sh guard 7j pins the probe call count to the declaration count, so a sixth corruption method needs a matching line in tests/lint-probes/books_cfg_test_probe.rs.txt - it refused this commit until the line was added. (b) Phase 5 rewrites total_stock, produced, consumed and goods_residual_units_for to be per-good; these two tests are what will catch a rewrite that breaks the check, and their expected produced/stock values are derived from params (firms x initial_inventory_units), not read back from the books. | open |  | 2026-08-31T11:49:41.130Z |  |
 
 ````json
 [
@@ -302,6 +304,30 @@ last_updated: 2026-08-31T11:26:22.135Z
     "status": "open",
     "reason": "",
     "recorded_at": "2026-08-31T11:26:10.066Z",
+    "resolved_at": null
+  },
+  {
+    "id": 23,
+    "kind": "unmet-truth",
+    "phase": "02",
+    "file": "src/invariants.rs",
+    "line": 581,
+    "description": "ROADMAP Phase 2 criterion 2 ('the negative test passes for EVERY check') was met for four of the five checks. check_goods (goods conservation, LEDG-05) had no negative test: every call site reaching it asserted Ok(()), the localisation test called first_breaking_goods_posting directly, and the message module rendered a hand-built GoodsConservation the check never produced. Verified by 02-VERIFICATION mutation M10 - replacing the whole body with 'if true { return Ok(()); }' left all 239 tests green. Plan 02-05 scoped exactly four violation classes (LEDG-04/06/07/10) and goods was never in scope, so the 'every check' self-audit never ran and nothing recorded the omission.",
+    "status": "fixed",
+    "reason": "",
+    "recorded_at": "2026-08-31T11:49:16.631Z",
+    "resolved_at": "2026-08-31T11:49:20.831Z"
+  },
+  {
+    "id": 24,
+    "kind": "deviation",
+    "phase": "02",
+    "file": "src/books.rs",
+    "line": null,
+    "description": "Closure of ledger entry 23. Books gains a fifth corruption method, corrupt_silent_stock(Account, GoodId, i64) - #[cfg(test)] pub(crate), no feature flag, no production surface - because no existing corruption could reach the goods check's balance-derived arm without also moving the journal arm. invariants::goods gains two negative tests, one per arm: an_exchange_whose_unit_legs_disagree_is_a_goods_leak_and_is_localised (journal residual 2, delta_units 0, posting Some) and units_conjured_outside_the_posting_path_break_the_identity_and_name_no_posting (delta_units -7, journal residual 0, posting None). Mutation-verified three ways: neutering the whole body fails both, neutering journal_residual_units fails only the first, neutering delta_units fails only the second. Two cross-phase obligations. (a) tests/lints.sh guard 7j pins the probe call count to the declaration count, so a sixth corruption method needs a matching line in tests/lint-probes/books_cfg_test_probe.rs.txt - it refused this commit until the line was added. (b) Phase 5 rewrites total_stock, produced, consumed and goods_residual_units_for to be per-good; these two tests are what will catch a rewrite that breaks the check, and their expected produced/stock values are derived from params (firms x initial_inventory_units), not read back from the books.",
+    "status": "open",
+    "reason": "",
+    "recorded_at": "2026-08-31T11:49:41.130Z",
     "resolved_at": null
   }
 ]
