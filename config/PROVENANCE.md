@@ -223,15 +223,19 @@ carves out the non-economic numerical-method constants, on the condition that ea
 *"recorded with a `GRADE: PROJECT` entry in `config/PROVENANCE.md` stating why they are not
 configuration"*. **This section is that record** — it is the clause the amended CORE-10 points at.
 
-These three constants live in `src/numeric.rs` as `const` items and are deliberately **not**
-configuration keys. They therefore have no row in section 2, and `tests/provenance.rs` does not
-expect one.
+These four constants live in the source as `const` items — the first three in `src/numeric.rs`,
+the fourth in `src/log.rs` — and are deliberately **not** configuration keys. They therefore have
+no row in section 2, and `tests/provenance.rs` does not expect one: its row parser requires six
+cells and a key containing a dot, so a four-cell row keyed by a Rust `const` name is invisible to
+it, and the config-key coverage test asks only that every key in `config/baseline.toml` has a row —
+never the converse.
 
 | Constant | Value | Grade | Why it is code, not configuration |
 |---|---|---|---|
 | `POW_FRAC_BITS` | 40 | GRADE: PROJECT | Bits of the fractional exponent consumed by `pow_frac_det`. It is a numerical-method iteration count, not an economic quantity: putting it in an economics config invites someone to tune it, and tuning it silently changes every trajectory. 40 bits gives a worst relative error of about 2e-12 against the standard library's power routine, far below any economically meaningful resolution. |
 | `PPM_SCALE` | 1000000 | GRADE: PROJECT | The parts-per-million scale on which every probability and ratio enters the model as an integer. It is a *representation*, not a parameter — changing it would not express a different economy, it would silently rescale every threshold key in the config at once. |
 | `MILLI_SCALE` | 1000 | GRADE: PROJECT | The thousandths scale, the model's second integer rate scale. Same argument as `PPM_SCALE`. |
+| `SCHEMA_VERSION` | `v1` | GRADE: PROJECT | The wire-format label carried by `run_meta.json` and by the generated schema. It is neither an economic parameter nor a numerical-method constant — it is a *label on the shape of the files a run writes*, and nothing in the model reads it. Routing it to configuration would make it tunable as though it described the economy, and would drag a string the simulation never consults through the five-part config-leaf agreement. It is spelled without a decimal point on purpose: the float-confinement guard in `tests/numeric_det.rs` reads whole lines and is deliberately blind to string literals, and the Phase 1 precedent is to reword the source rather than widen the guard. |
 
 **The caveat that keeps this honest.** `POW_FRAC_BITS` is nonetheless a **committed constant whose
 change alters every run exactly as an economic parameter would** — every golden run and every
@@ -241,6 +245,12 @@ That is the whole reason for the carve-out, and stating it plainly is the price 
 
 `PPM_SCALE` and `MILLI_SCALE` are weaker cases and rest on the representation argument above
 (`01-CONTEXT.md` D-14): a scale factor is the unit a parameter is written in, not the parameter.
+
+`SCHEMA_VERSION` carries the same caveat in its own currency, and it is worth stating as plainly.
+Bumping it **invalidates the committed schema and the committed golden run**, both of which would
+have to be regenerated and reviewed. Being code rather than configuration does not make it free to
+change — it makes the change a deliberate source-level act, which is precisely what a label on a
+frozen wire format should require.
 
 ---
 

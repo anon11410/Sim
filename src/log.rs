@@ -96,6 +96,34 @@ pub const EVENTS_FILE: &str = "events.jsonl";
 /// The decision-provenance table, relative to the run directory.
 pub const PROVENANCE_FILE: &str = "provenance.csv";
 
+/// The run's own record, relative to the run directory.
+///
+/// **The single quarantined file.** It is excluded from the determinism diff
+/// and is the only file in a run directory that may carry a wall clock. That
+/// exclusion is a permission for a start time, not a licence to put the
+/// environment beside the logs.
+pub const RUN_META_FILE: &str = "run_meta.json";
+
+/// The wire-format label carried by the run record and, from plan 03-04, by the
+/// generated schema.
+///
+/// **Spelled without a decimal point, deliberately.** The float-confinement
+/// guard in `tests/numeric_det.rs` reads whole lines and is blind to both
+/// comments and string literals — Phase 1 recorded that *"a heuristic that
+/// skips comments is one someone later widens to skip a string"* and reworded
+/// `src/rng.rs` rather than loosening the test. A dotted version string here
+/// fails that guard, which was reproduced at a cost of one build; the precedent
+/// is to reword the constant, not to add this module to the allowlist. If a
+/// dotted version is ever wanted in the emitted record, build it from integer
+/// constants and concatenate.
+///
+/// **A `const`, not a configuration key** — see `config/PROVENANCE.md` § 4,
+/// which carries the `GRADE: PROJECT` row CORE-10's carve-out is conditional
+/// on. Being code rather than configuration does not make it free to change:
+/// bumping it invalidates the committed schema and the committed golden run,
+/// which is exactly why the change should be a deliberate source-level act.
+pub const SCHEMA_VERSION: &str = "v1";
+
 /// One row of the per-tick series.
 ///
 /// **Flat, integer-only, and with no optional field.** All three are load
