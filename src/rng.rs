@@ -313,6 +313,22 @@ impl Stream {
     /// Chosen elements are swapped into the low positions of `pool`, so `pool`
     /// is permuted in place and its first `k` entries are the returned sample.
     ///
+    /// # Pool aliasing
+    ///
+    /// **`pool` is permuted in place, and that is a constraint on the caller,
+    /// not just a description.** A pool shared between two purposes makes the
+    /// second purpose's sample depend on how many times the first permuted the
+    /// buffer — which is exactly the "an added draw in one market perturbs
+    /// another" failure the sub-stream design exists to eliminate (CORE-04),
+    /// reintroduced through shared mutable state instead of through a shared
+    /// sequence. The natural way to avoid a per-tick allocation — one
+    /// `Vec<u32>` of firm indices built at setup and reused across purposes and
+    /// ticks — is precisely the shape that does this.
+    ///
+    /// Build the pool fresh per draw site, or restore its order before reuse.
+    /// `extra_draws_in_one_purpose_cannot_perturb_another` in
+    /// `tests/determinism_rng.rs` carries a pool arm that observes this.
+    ///
     /// # Panics
     ///
     /// If `k > pool.len()`.
@@ -334,6 +350,12 @@ impl Stream {
     /// A uniform permutation of `pool`, by full Fisher-Yates.
     /// **Exactly `pool.len() - 1`** draws (and none for an empty or 1-element
     /// slice). For Phase 3's activation-order shuffle.
+    ///
+    /// # Pool aliasing
+    ///
+    /// The same constraint as [`Stream::sample_k`]: `pool` is permuted in
+    /// place, so a buffer shared across purposes couples them through state
+    /// even though their keystreams are independent.
     pub fn shuffle_in_place(&mut self, pool: &mut [u32]) {
         let n = pool.len();
         for i in 0..n.saturating_sub(1) {

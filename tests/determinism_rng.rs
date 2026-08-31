@@ -81,6 +81,71 @@ fn extra_draws_in_one_purpose_cannot_perturb_another() {
 }
 
 #[test]
+fn extra_draws_in_one_purpose_cannot_perturb_another_when_a_pool_is_involved() {
+    // The arm above uses no pool at all, so the isolation property it certifies
+    // is narrower than the property the module claims. `sample_k` permutes the
+    // caller's pool IN PLACE, which is a second channel the keystream design
+    // does not cover: if a later phase allocates one Vec of firm indices at
+    // setup and reuses it across purposes — the natural way to avoid a per-tick
+    // allocation — then the goods sample depends on how many times the labour
+    // market permuted the same buffer, and CORE-04 is defeated from outside the
+    // RNG entirely.
+    //
+    // This is the documented contract observed: build the pool FRESH per draw
+    // site and the isolation holds.
+    let fresh_pool = || -> Vec<u32> { (0..20).collect() };
+
+    let baseline: Vec<u32> = {
+        let r = Rngs::new(SEED);
+        let mut pool = fresh_pool();
+        r.stream(10, 7, Purpose::GoodsSample).sample_k(&mut pool, 5)
+    };
+
+    let after: Vec<u32> = {
+        let r = Rngs::new(SEED);
+        // The labour market samples first, repeatedly, from its OWN pool.
+        {
+            let mut labour_pool = fresh_pool();
+            let mut labour = r.stream(10, 7, Purpose::LabourSample);
+            for _ in 0..7 {
+                labour.sample_k(&mut labour_pool, 3);
+            }
+        }
+        let mut pool = fresh_pool();
+        r.stream(10, 7, Purpose::GoodsSample).sample_k(&mut pool, 5)
+    };
+
+    assert_eq!(
+        baseline, after,
+        "a pool-based sample in one purpose was perturbed by another purpose's \
+         sampling — CORE-04 is broken"
+    );
+
+    // The other half of the contract, stated as an observation rather than left
+    // to the reader: a SHARED pool does couple the two purposes. This is why
+    // `sample_k`'s doc calls pool aliasing a constraint on the caller. If this
+    // assertion ever flips to equality the hazard has gone away and the
+    // documented constraint can be relaxed — until then it is real.
+    let shared: Vec<u32> = {
+        let r = Rngs::new(SEED);
+        let mut pool = fresh_pool();
+        {
+            let mut labour = r.stream(10, 7, Purpose::LabourSample);
+            for _ in 0..7 {
+                labour.sample_k(&mut pool, 3);
+            }
+        }
+        r.stream(10, 7, Purpose::GoodsSample).sample_k(&mut pool, 5)
+    };
+
+    assert_ne!(
+        baseline, shared,
+        "a pool shared across purposes was expected to couple them through \
+         state; if it no longer does, sample_k's pool-aliasing warning is stale"
+    );
+}
+
+#[test]
 fn distinct_keys_give_distinct_streams() {
     let r = Rngs::new(SEED);
     let mut seen = BTreeSet::new();
