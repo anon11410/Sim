@@ -1,0 +1,115 @@
+# GENERATED FILE — derived from the pinned toolchain's own standard-library source,
+# never typed from memory. Regenerating is the only supported way to change it.
+#
+# Toolchain:  rustc 1.94.1 (e408947bf 2026-03-25)
+# Sources:    $(rustc --print sysroot)/lib/rustlib/src/rust/library/std/src/num/f64.rs
+#             $(rustc --print sysroot)/lib/rustlib/src/rust/library/core/src/num/f64.rs
+#             ...and the matching f32.rs pair.
+# Marker:     the doc sentence "The precision of this function is non-deterministic."
+#             under the standard library's "# Unspecified precision" heading.
+#
+# COUNT ACTUALLY FOUND IN THE LOCAL SOURCE (not assumed):
+#   f64: 31 in std + 2 in core = 33 distinct methods
+#   f32: 31 in std + 3 in core = 33 distinct methods
+#        (f32 declares cbrt in BOTH core and std; the stable std declaration is the
+#         callable one, so the distinct count matches f64 rather than exceeding it.)
+#   Total disallowed-methods float entries: 66
+#
+# Banning a method on one width does NOT cover the other — verified by compiling an
+# f32 powf call with only f64::powf banned: it passed. Both widths are listed.
+#
+# 4 of the 33 per width are unstable and therefore uncallable on this
+# stable toolchain: erf, erfc, gamma, ln_gamma.
+# Clippy SILENTLY IGNORES a disallowed-methods path it cannot resolve, so these four
+# entries emit no diagnostic and are the documented exclusion. That same silence is why
+# tests/lints.sh compares the probe's diagnostic count against its call-site count: a
+# typo in any path below would otherwise look exactly like a correctly-configured ban.
+#
+# DELIBERATELY NOT BANNED — IEEE-754 mandates a single correctly-rounded result for
+# each of these, so they are reproducible: + - * / %, sqrt, mul_add, abs, copysign,
+# floor, ceil, round, trunc, rem_euclid and the comparisons. sqrt being available is
+# what lets src/numeric.rs compute a fractional power by repeated square roots, and is
+# therefore what makes this list survivable in Phase 7 with no exemption anywhere.
+#
+# Lint LEVELS live in Cargo.toml's [lints.clippy] table (D-21); this file is contents only.
+
+disallowed-types = [
+  { path = "std::collections::HashMap", reason = "iteration order is nondeterministic and per-instance seeded; use a Vec indexed by ID, or BTreeMap (CORE-07, D-06)" },
+  { path = "std::collections::HashSet", reason = "iteration order is nondeterministic and per-instance seeded; use BTreeSet (CORE-07, D-06)" },
+  { path = "rand::rngs::SmallRng", reason = "non-portable generator: rand reserves the right to replace the algorithm, so a cargo update would silently re-trajectory every run. CORE-03 clause (b) bans it by USE because rand 0.10.2 makes the type unconditional and it cannot be removed from the graph" },
+  { path = "rand::rngs::Xoshiro256PlusPlus", reason = "not the project generator; only ChaCha8Rng carries rand's reproducibility guarantee (CORE-03 clause (b))" },
+  { path = "rand::rngs::Xoshiro128PlusPlus", reason = "not the project generator; only ChaCha8Rng carries rand's reproducibility guarantee (CORE-03 clause (b))" },
+]
+
+disallowed-methods = [
+  { path = "std::time::SystemTime::now", reason = "the tick number is the only clock in this system; wall-clock time may appear solely in run_meta.json, which is excluded from the determinism diff" },
+  { path = "std::time::Instant::now", reason = "the tick number is the only clock in this system; wall-clock time may appear solely in run_meta.json, which is excluded from the determinism diff" },
+  # --- f64: 33 methods carrying std's unspecified-precision marker ---
+  { path = "f64::powi", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::powf", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::exp", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::exp2", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::ln", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::log", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::log2", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::log10", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::abs_sub", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::cbrt", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::hypot", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::sin", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::cos", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::tan", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::asin", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::acos", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::atan", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::atan2", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::sin_cos", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::exp_m1", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::ln_1p", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::sinh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::cosh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::tanh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::asinh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::acosh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::atanh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::gamma", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path (unstable on this toolchain: path does not resolve, no diagnostic)" },
+  { path = "f64::ln_gamma", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path (unstable on this toolchain: path does not resolve, no diagnostic)" },
+  { path = "f64::erf", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path (unstable on this toolchain: path does not resolve, no diagnostic)" },
+  { path = "f64::erfc", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path (unstable on this toolchain: path does not resolve, no diagnostic)" },
+  { path = "f64::to_degrees", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f64::to_radians", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  # --- f32: 33 methods carrying std's unspecified-precision marker ---
+  { path = "f32::powi", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::powf", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::exp", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::exp2", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::ln", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::log", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::log2", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::log10", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::abs_sub", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::cbrt", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::hypot", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::sin", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::cos", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::tan", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::asin", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::acos", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::atan", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::atan2", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::sin_cos", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::exp_m1", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::ln_1p", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::sinh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::cosh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::tanh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::asinh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::acosh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::atanh", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::gamma", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path (unstable on this toolchain: path does not resolve, no diagnostic)" },
+  { path = "f32::ln_gamma", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path (unstable on this toolchain: path does not resolve, no diagnostic)" },
+  { path = "f32::erf", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path (unstable on this toolchain: path does not resolve, no diagnostic)" },
+  { path = "f32::erfc", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path (unstable on this toolchain: path does not resolve, no diagnostic)" },
+  { path = "f32::to_degrees", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+  { path = "f32::to_radians", reason = "precision is unspecified — it varies by platform, by Rust version, and even between two invocations in one execution, so it cannot appear on a byte-reproducible path" },
+]

@@ -1,0 +1,78 @@
+// GENERATED probe — a .txt file so cargo never compiles it during a normal build.
+// tests/lints.sh copies it to tests/_probe.rs, runs clippy, and asserts that the
+// number of `use of a disallowed method` diagnostics equals the number of marked call
+// sites below. Clippy accepts an unresolvable disallowed-methods path in silence,
+// so without this comparison a typo in clippy.toml is indistinguishable from a
+// working ban. Every entry that resolves on the pinned stable toolchain is called
+// exactly once, on BOTH float widths. Each marked call site is a line whose final
+// token is the marker; the marker deliberately appears nowhere else in this file, so
+// counting it is exact rather than approximately right.
+//
+// Excluded, and only these: erf, erfc, gamma, ln_gamma — unstable in std, so they cannot be
+// called on stable at all. Their clippy.toml entries stay; the exclusion is the
+// documented hole, and it is documented rather than silent.
+
+#![allow(dead_code, deprecated)]
+
+// ---- f64 ----
+pub fn probe_f64_powi(x: f64) -> f64 { x.powi(2) } // BANNEDCALL
+pub fn probe_f64_powf(x: f64, y: f64) -> f64 { x.powf(y) } // BANNEDCALL
+pub fn probe_f64_exp(x: f64) -> f64 { x.exp() } // BANNEDCALL
+pub fn probe_f64_exp2(x: f64) -> f64 { x.exp2() } // BANNEDCALL
+pub fn probe_f64_ln(x: f64) -> f64 { x.ln() } // BANNEDCALL
+pub fn probe_f64_log(x: f64, y: f64) -> f64 { x.log(y) } // BANNEDCALL
+pub fn probe_f64_log2(x: f64) -> f64 { x.log2() } // BANNEDCALL
+pub fn probe_f64_log10(x: f64) -> f64 { x.log10() } // BANNEDCALL
+pub fn probe_f64_abs_sub(x: f64, y: f64) -> f64 { x.abs_sub(y) } // BANNEDCALL
+pub fn probe_f64_cbrt(x: f64) -> f64 { x.cbrt() } // BANNEDCALL
+pub fn probe_f64_hypot(x: f64, y: f64) -> f64 { x.hypot(y) } // BANNEDCALL
+pub fn probe_f64_sin(x: f64) -> f64 { x.sin() } // BANNEDCALL
+pub fn probe_f64_cos(x: f64) -> f64 { x.cos() } // BANNEDCALL
+pub fn probe_f64_tan(x: f64) -> f64 { x.tan() } // BANNEDCALL
+pub fn probe_f64_asin(x: f64) -> f64 { x.asin() } // BANNEDCALL
+pub fn probe_f64_acos(x: f64) -> f64 { x.acos() } // BANNEDCALL
+pub fn probe_f64_atan(x: f64) -> f64 { x.atan() } // BANNEDCALL
+pub fn probe_f64_atan2(x: f64, y: f64) -> f64 { x.atan2(y) } // BANNEDCALL
+pub fn probe_f64_sin_cos(x: f64) -> (f64, f64) { x.sin_cos() } // BANNEDCALL
+pub fn probe_f64_exp_m1(x: f64) -> f64 { x.exp_m1() } // BANNEDCALL
+pub fn probe_f64_ln_1p(x: f64) -> f64 { x.ln_1p() } // BANNEDCALL
+pub fn probe_f64_sinh(x: f64) -> f64 { x.sinh() } // BANNEDCALL
+pub fn probe_f64_cosh(x: f64) -> f64 { x.cosh() } // BANNEDCALL
+pub fn probe_f64_tanh(x: f64) -> f64 { x.tanh() } // BANNEDCALL
+pub fn probe_f64_asinh(x: f64) -> f64 { x.asinh() } // BANNEDCALL
+pub fn probe_f64_acosh(x: f64) -> f64 { x.acosh() } // BANNEDCALL
+pub fn probe_f64_atanh(x: f64) -> f64 { x.atanh() } // BANNEDCALL
+pub fn probe_f64_to_degrees(x: f64) -> f64 { x.to_degrees() } // BANNEDCALL
+pub fn probe_f64_to_radians(x: f64) -> f64 { x.to_radians() } // BANNEDCALL
+
+// ---- f32 ----
+pub fn probe_f32_powi(x: f32) -> f32 { x.powi(2) } // BANNEDCALL
+pub fn probe_f32_powf(x: f32, y: f32) -> f32 { x.powf(y) } // BANNEDCALL
+pub fn probe_f32_exp(x: f32) -> f32 { x.exp() } // BANNEDCALL
+pub fn probe_f32_exp2(x: f32) -> f32 { x.exp2() } // BANNEDCALL
+pub fn probe_f32_ln(x: f32) -> f32 { x.ln() } // BANNEDCALL
+pub fn probe_f32_log(x: f32, y: f32) -> f32 { x.log(y) } // BANNEDCALL
+pub fn probe_f32_log2(x: f32) -> f32 { x.log2() } // BANNEDCALL
+pub fn probe_f32_log10(x: f32) -> f32 { x.log10() } // BANNEDCALL
+pub fn probe_f32_abs_sub(x: f32, y: f32) -> f32 { x.abs_sub(y) } // BANNEDCALL
+pub fn probe_f32_cbrt(x: f32) -> f32 { x.cbrt() } // BANNEDCALL
+pub fn probe_f32_hypot(x: f32, y: f32) -> f32 { x.hypot(y) } // BANNEDCALL
+pub fn probe_f32_sin(x: f32) -> f32 { x.sin() } // BANNEDCALL
+pub fn probe_f32_cos(x: f32) -> f32 { x.cos() } // BANNEDCALL
+pub fn probe_f32_tan(x: f32) -> f32 { x.tan() } // BANNEDCALL
+pub fn probe_f32_asin(x: f32) -> f32 { x.asin() } // BANNEDCALL
+pub fn probe_f32_acos(x: f32) -> f32 { x.acos() } // BANNEDCALL
+pub fn probe_f32_atan(x: f32) -> f32 { x.atan() } // BANNEDCALL
+pub fn probe_f32_atan2(x: f32, y: f32) -> f32 { x.atan2(y) } // BANNEDCALL
+pub fn probe_f32_sin_cos(x: f32) -> (f32, f32) { x.sin_cos() } // BANNEDCALL
+pub fn probe_f32_exp_m1(x: f32) -> f32 { x.exp_m1() } // BANNEDCALL
+pub fn probe_f32_ln_1p(x: f32) -> f32 { x.ln_1p() } // BANNEDCALL
+pub fn probe_f32_sinh(x: f32) -> f32 { x.sinh() } // BANNEDCALL
+pub fn probe_f32_cosh(x: f32) -> f32 { x.cosh() } // BANNEDCALL
+pub fn probe_f32_tanh(x: f32) -> f32 { x.tanh() } // BANNEDCALL
+pub fn probe_f32_asinh(x: f32) -> f32 { x.asinh() } // BANNEDCALL
+pub fn probe_f32_acosh(x: f32) -> f32 { x.acosh() } // BANNEDCALL
+pub fn probe_f32_atanh(x: f32) -> f32 { x.atanh() } // BANNEDCALL
+pub fn probe_f32_to_degrees(x: f32) -> f32 { x.to_degrees() } // BANNEDCALL
+pub fn probe_f32_to_radians(x: f32) -> f32 { x.to_radians() } // BANNEDCALL
+
